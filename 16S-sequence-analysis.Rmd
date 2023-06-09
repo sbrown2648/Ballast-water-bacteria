@@ -1,0 +1,384 @@
+---
+title: "Ballast water bacteria 16S rRNA analysis"
+author: "Sarah Brown"
+date: "`r Sys.Date()`"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load Packages and Import Data
+
+Here, we load the required packages and then import the .qza files exported from QIIME2 using the qiime2R package. The final object is a phyloseq object called Ballast_physeq.
+
+```{r packages}
+
+library(ggplot2)
+library(vegan)
+library(plyr)
+library(dplyr)
+library(scales)
+library(grid)
+library(reshape2)
+library(phyloseq)
+library(picante)
+library(tidyr)
+library(viridis)
+library(qiime2R)
+library(DESeq2)
+library(patchwork)
+library(RColorBrewer)
+library(RColorBrewer)
+library(microViz)
+library(speedyseq)
+library(ComplexHeatmap)
+
+set.seed(13745)
+
+#Create a phyloseq object from the .qza files exported from qiime2 using 
+#the qiime2R package
+Ballast_physeq <- qza_to_phyloseq(
+  features="Qiime output/ballast-dada2-table.qza",
+  tree="Qiime output/ballast-rooted-tree.qza",
+  taxonomy="Qiime output/ballast-taxonomy.qza",
+  metadata = "Qiime output/Metadata.tsv"
+)
+```
+
+## Preparing the Data
+
+Before performing any analyses, we need to examine the phyloseq object and remove chloroplast and mitochondrial sequences:
+
+```{r prep}
+
+#Check the rank names to make sure they are accurate
+rank_names(Ballast_physeq)
+
+#Correct output:[1] "Kingdom" "Phylum"  "Class"   "Order"   "Family"  
+#                   "Genus"   "Species"
+
+#Check sample variables
+sample_variables(Ballast_physeq)
+
+#Remove chloroplast sequences and any contaminant sequences
+Ballast_physeq <- subset_taxa(Ballast_physeq, Kingdom != "d__Archaea")
+Ballast_physeq <- subset_taxa(Ballast_physeq, Order != "Chloroplast")
+Ballast_physeq <- subset_taxa(Ballast_physeq, Family != "Mitochondria")
+
+#Check that contaminant sequences are removed (easiest to save as data frame and search)
+taxtabl <- as.data.frame(tax_table(Ballast_physeq))
+
+#At this point, blanks and positive controls should also be removed
+Ballast_physeq = subset_samples(Ballast_physeq, Sample_type != "control")
+Ballast_physeq = subset_samples(Ballast_physeq, Sample_type != "negative")
+```
+
+### Examine the total number of reads and ASV's
+
+```{r asv, warning = FALSE}
+
+readsumsdf = data.frame(nreads = sort(taxa_sums(Ballast_physeq), TRUE), 
+                        sorted = 1:ntaxa(Ballast_physeq), type = "ASVs")
+readsumsdf = rbind(readsumsdf, data.frame(nreads = sort(sample_sums(Ballast_physeq), TRUE), sorted = 1:nsamples(Ballast_physeq), type = "Samples"))
+title = "Total number of reads"
+p = ggplot(readsumsdf, aes(x = sorted, y = nreads)) + geom_bar(stat = "identity")
+p + ggtitle(title) + scale_y_log10() + facet_wrap(~type, 1, scales = "free")
+```
+
+### Create a rarefaction curve
+
+```{r rarefaction, warning = FALSE, messages = FALSE}
+
+#Rarefaction curve using vegan
+#From: https://micca.readthedocs.io/en/latest/phyloseq.html
+taxa_are_rows(Ballast_physeq)
+
+mat <- t(otu_table(Ballast_physeq))
+class(mat) <- "matrix"
+class(mat)
+
+mat <- as(t(otu_table(Ballast_physeq)), "matrix")
+class(mat)
+
+raremax <- min(rowSums(mat))
+
+system.time(rarecurve(mat, step = 100, sample = raremax, col = "blue", label = FALSE))
+```
+
+### Create table showing the number of reads per sample
+
+```{r}
+
+#Sum reads and sort by samples with least to greatest number of reads
+samples_reads <- sort(sample_sums(Ballast_physeq))
+
+#Create table 
+knitr::kable(samples_reads) %>% 
+  kableExtra::kable_styling("striped", 
+                            latex_options="scale_down") %>% 
+  kableExtra::scroll_box(width = "100%")
+```
+
+### Filter samples
+
+Based on the table above, there are some samples with very few to no reads, so we'll filter these out here. In this case, we keep all samples with more than 1,000 reads.
+
+Removing these samples with low sequencing depths is important because samples with low reads typically are lower quality and have a greater probability of containing contaminant sequences ([Weiss et al., 2017](https://microbiomejournal.biomedcentral.com/articles/10.1186/s40168-017-0237-y)).
+
+```{r filter}
+
+Ballast_physeq = subset_samples(Ballast_physeq, 
+                            Sample_number != "104")
+Ballast_physeq = subset_samples(Ballast_physeq, 
+                            Sample_number != "105")
+Ballast_physeq = subset_samples(Ballast_physeq, 
+                            Sample_number != "107")
+Ballast_physeq = subset_samples(Ballast_physeq, 
+                            Sample_number != "108")
+Ballast_physeq = subset_samples(Ballast_physeq, 
+                            Sample_number != "109")
+Ballast_physeq = subset_samples(Ballast_physeq, 
+                            Sample_number != "106")
+
+```
+
+### Label and order variables
+
+Now we can relabel the variables; if you type in Ballast_physeq you will see that sample_data is the matrix that holds the information that we want to change, so we need to include sample_data in our code here.
+
+```{r label}
+
+#Order factors
+sample_data(Ballast_physeq)$Sample_type <- factor(sample_data(Ballast_physeq)$Sample_type, 
+               levels = c("port_uptake", "ocean_uptake", "BWT", "BWT_BWE"),
+               labels = c("port_uptake", "ocean_uptake", "BWT", "BWT_BWE"))
+
+sample_data(Ballast_physeq)$Sample_number <- factor(sample_data(Ballast_physeq)$Sample_number, 
+               levels = c("80", "81", "82", "83", "84", "85", "86", "87", "88", "89", "90", "91", "92", "93", "94", "95", "96", "97", "98", "100", "101", "102", "103", "110", "111", "112", "113", "114", "115"),
+               labels = c("80", "81", "82", "83", "84", "85", "86", "87", "88", "89", "90", "91", "92", "93", "94", "95", "96", "97", "98", "100", "101", "102", "103", "110", "111", "112", "113", "114", "115"))
+
+sample_data(Ballast_physeq)$Voyage <- factor(sample_data(Ballast_physeq)$Voyage, 
+               levels = c("1", "2"),
+               labels = c("1", "2"))
+```
+
+### Abundance transformation
+
+We have to transform the count data to account for differences in library size between samples. This is often done using rarefaction, but rarefaction results in the elimination of valid data and can also increase the rate of false positives when testing for ASV's that are diferentially abundant in different sample categories.
+
+Additionally, here are some helpful references regarding library normalization strategies:
+
+[Waste Not, Want Not: Why Rarefying Microbiome Data is Inadmissible](https://journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1003531)
+
+[Normalization and microbial differential abundance strategies depend on data characteristics](https://microbiomejournal.biomedcentral.com/articles/10.1186/s40168-017-0237-y)
+
+Below, we'll use relative abundance as our variance-stabilizing method.
+
+```{r abundance}
+
+#Transform to relative abundance
+Ballast_physeqRA = transform_sample_counts(Ballast_physeq, function(x){x / sum(x)})
+```
+
+Alternatively, you could also choose to log-transform the data:
+
+```{r log transform}
+
+Ballast_physeqlog = transform_sample_counts(Ballast_physeq, function(x) log(1 + x))
+```
+
+## Alpha Diversity
+
+Note that while these data are not rarefied, they are normalized. We'll use the Shannon diversity index (based on richness AND evenness; examines how many different taxa are present and how evenly they're distributed within a sample) to analyze alpha diversity between variable types. This means it considers both the number of species and the inequality between species abundances.
+
+### Calculate Shannon Diversity per Sample
+
+Using the estimate_richness function in the phyloseq package to calculate Shannon diversity. The estimate_richness function can also take measures "Chao1" "ACE" "Simpson" and "Fisher".
+
+Note that running this code results in an error message stating that the provided data does not have any singletons. See here for more information:
+
+<https://github.com/benjjneb/dada2/issues/214>
+
+<https://forum.qiime2.org/t/singletons-and-diversity-richness-indices/2971/9>
+
+```{r shannon}
+
+#Calculating richness - Shannon diversity in a new dataframe
+#richness <- data.frame(estimate_richness(Ballast_physeqRA, measures = c("Shannon")))
+#richness <- setNames(cbind(rownames(richness), richness, row.names = NULL), 
+#                     c("sample-id", "Shannon"))
+
+#Add the sample metadata to the dataframe
+#s <- data.frame(sample_data(Ballast_physeqRA))
+#s <- setNames(cbind(rownames(s), s, row.names = NULL), 
+#              c("sample-id", "effluent", "week", "polymer_type", 
+#                "bead_diameter", "Channel", "sample_type", "particle_type"))
+
+#alphadiv <- merge(s, richness, by = "sample-id")
+
+#Order factors
+#alphadiv$polymer_type <- factor(alphadiv$polymer_type, 
+#                        levels = c("Glass", "HDPE", "LDPE", "PP", "PS", "Water"),
+#                       labels = c("Glass", "HDPE", "LDPE", "PP", "PS", "Water")) 
+
+#Shows the calculated indices
+#knitr::kable(head(alphadiv)) %>% 
+  #kableExtra::kable_styling("striped", 
+  #                          latex_options="scale_down") %>% 
+  #kableExtra::scroll_box(width = "100%")
+```
+
+### Create Alpha Diversity Boxplots
+
+#### Comparison: particles vs. water
+
+```{r boxplot}
+
+#Plot
+#ggplot(data=alphadiv, aes(x=sample_type, y=Shannon), alpha=0.1) + 
+#  geom_boxplot(aes(fill=sample_type)) +
+#  geom_point(position=position_dodge(width=0.75),aes(group=sample_type)) +
+#  facet_wrap(~effluent, scale="free") +
+#  theme(legend.position="right",
+#        panel.border = element_rect(colour = "black", fill = NA, size = 0.5), 
+#        panel.background = element_blank())
+```
+
+#### Comparison: particle types (microplastic, glass, or water) between effluent sources
+
+```{r boxplot2}
+
+#Plot
+#ggplot(data=alphadiv, aes(x=effluent, y=Shannon), alpha=0.1) + 
+#  geom_boxplot(aes(fill=effluent)) +
+#  geom_point(position=position_dodge(width=0.75),aes(group=effluent)) +
+#  facet_wrap(~particle_type, scale="free") +
+#  theme(legend.position="right",
+#        panel.border = element_rect(colour = "black", fill = NA, size = 0.5), 
+#        panel.background = element_blank())
+```
+
+### Alpha Diversity statistics
+
+## Ordination plots
+
+### Find plot color hex codes
+
+```{r colors}
+
+brewer.pal(4, "Dark2")
+```
+
+### Create NMDS with the Bray-Curtis dissimilarity matrix
+
+Here, we use the relative abundance transformed data to create an NMDS plot.
+
+Also, pay attention to the printout of the stress here - less than 0.05 means that the two dimensional plot is an excellent representation of the data (i.e., the NMDS ordination is a 'good fit' for the data), \<0.1 and 0.2 are also okay, but \> or = to 0.3 means that the NMDS ordination does not fit the data well.
+
+```{r NMDS Bray}
+
+all.nmds.source.ord <- ordinate(
+  physeq = Ballast_physeqRA, 
+  method = "NMDS", 
+  distance = "bray"
+)
+
+#Plot, color coding by Sample_type
+all.nmds.sample.type <- plot_ordination(
+  physeq = Ballast_physeqRA,
+  ordination = all.nmds.source.ord) + 
+  scale_colour_manual(values = c("port_uptake" = "#E7298A", "ocean_uptake" = "#7570B3", "BWT" = "#1B9E77", "BWT_BWE" = "#D95F02"), "Sample Type") +
+  scale_shape_manual(values = c("1" = 16, "2" = 17), name = "Voyage") +
+  geom_point(mapping = aes(colour = factor(Sample_type), shape = factor(Voyage), size = 5)) +
+  guides(size=FALSE) +
+  guides(shape = guide_legend(override.aes = list(size = 3))) +
+  theme(plot.title = element_text(size = 18),
+        text = element_text(size = 18), 
+        axis.title = element_text(size = 15),
+        panel.spacing = unit(1, "lines"), 
+        panel.border = element_rect(colour = "black", fill = NA, size = 0.5), 
+        panel.background = element_blank(), 
+        legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15),
+        legend.justification = c("right", "top")) 
+
+print(all.nmds.sample.type)
+
+```
+
+### Create PCoA with the Bray-Curtis dissimilarity matrix
+
+```{r PCoA Bray}
+
+all.pcoa.source.ord <- ordinate(
+  physeq = Ballast_physeqRA, 
+  method = "PCoA", 
+  distance = "bray"
+)
+
+#Plot, color coding by Sample_type
+all.pcoa.sample.type <- plot_ordination(
+  physeq = Ballast_physeqRA,
+  ordination = all.pcoa.source.ord) + 
+  scale_colour_manual(values = c("port_uptake" = "#E7298A", "ocean_uptake" = "#7570B3", "BWT" = "#1B9E77", "BWT_BWE" = "#D95F02"), "Sample Type") +
+  scale_shape_manual(values = c("1" = 16, "2" = 17), name = "Voyage") +
+  geom_point(mapping = aes(colour = factor(Sample_type), shape = factor(Voyage), size = 5)) +
+  geom_text(aes(label = Sample_number, colour = factor(Sample_type)), nudge_x=0.05, nudge_y=0.05, check_overlap = TRUE) +
+  guides(size=FALSE) +
+  guides(shape = guide_legend(override.aes = list(size = 3))) +
+  theme(plot.title = element_text(size = 18),
+        text = element_text(size = 18), 
+        axis.title = element_text(size = 15),
+        panel.spacing = unit(1, "lines"), 
+        panel.border = element_rect(colour = "black", fill = NA, size = 0.5), 
+        panel.background = element_blank(), 
+        legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15),
+        legend.justification = c("right", "top")) 
+
+print(all.pcoa.sample.type)
+
+```
+
+### 
+
+
+## Preliminary taxonomy fix
+
+Some of the taxonomic levels in the phyloseq object have NA's or short values such as "g\_" which are uninformative when graphing bacterial taxonomy at those levels. The tax_fix function from the microViz package fills in these unknown values with useful information from higher taxonomic levels.
+
+This should be run prior to running the following code for generating community composition barcharts, heatmaps, or any other analysis involving the visualization of bacterial community composition.
+
+```{r tax fix}
+
+#First, view the tax_table
+knitr::kable(head(tax_table(Ballast_physeq))) %>% 
+  kableExtra::kable_styling("striped") %>% 
+  kableExtra::scroll_box(width = "100%")
+
+#Now fix the labels
+Ballast_physeq <- tax_fix(Ballast_physeq)
+
+#View the relabeled tax_table
+knitr::kable(head(tax_table(Ballast_physeq))) %>% 
+  kableExtra::kable_styling("striped") %>% 
+  kableExtra::scroll_box(width = "100%")
+```
+
+## Bacterial community composition bar charts
+
+### Family level, grouped by sample type
+
+```{r barcharts}
+
+
+```
+
+## Session Info
+
+```{r info}
+
+devtools::session_info()
+```
