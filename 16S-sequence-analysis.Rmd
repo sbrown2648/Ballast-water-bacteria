@@ -1,19 +1,25 @@
 ---
 title: "Ballast water bacteria 16S rRNA analysis"
 author: "Sarah Brown"
-date: "`r Sys.Date()`"
-output: github_document
+date: "July 19, 2023"
+output: 
+  github_document:
+    toc: true
+    number_sections: true
+  theme: bright
+  highlight: default
+always_allow_html: true
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## Load Packages and Import Data
+# Load Packages and Import Data
 
 Here, we load the required packages and then import the .qza files exported from QIIME2 using the qiime2R package. The final object is a phyloseq object called Ballast_physeq.
 
-```{r packages}
+```{r packages, warning = FALSE, messages = FALSE}
 
 library(ggplot2)
 library(vegan)
@@ -34,6 +40,8 @@ library(RColorBrewer)
 library(microViz)
 library(speedyseq)
 library(ComplexHeatmap)
+library(plotly)
+library(seecolor)
 
 set.seed(13745)
 
@@ -47,7 +55,7 @@ Ballast_physeq <- qza_to_phyloseq(
 )
 ```
 
-## Preparing the Data
+# Preparing the Data
 
 Before performing any analyses, we need to examine the phyloseq object and remove chloroplast and mitochondrial sequences:
 
@@ -75,10 +83,13 @@ Ballast_physeq = subset_samples(Ballast_physeq, Sample_type != "control")
 Ballast_physeq = subset_samples(Ballast_physeq, Sample_type != "negative")
 ```
 
-### Examine the total number of reads and ASV's
+## Examine the total number of reads and ASV's
+
+This part of the code examines the number of times each ASV occurs in the data set and the number of reads per sample; this will help determine which ASV's and samples need to be filtered out of the data set.
 
 ```{r asv, warning = FALSE}
 
+#Create graph showing number of reads per ASV and number of reads per sample
 readsumsdf = data.frame(nreads = sort(taxa_sums(Ballast_physeq), TRUE), 
                         sorted = 1:ntaxa(Ballast_physeq), type = "ASVs")
 readsumsdf = rbind(readsumsdf, data.frame(nreads = sort(sample_sums(Ballast_physeq), TRUE), sorted = 1:nsamples(Ballast_physeq), type = "Samples"))
@@ -87,7 +98,51 @@ p = ggplot(readsumsdf, aes(x = sorted, y = nreads)) + geom_bar(stat = "identity"
 p + ggtitle(title) + scale_y_log10() + facet_wrap(~type, 1, scales = "free")
 ```
 
-### Create a rarefaction curve
+```{r ASV abundance}
+
+#Create a dataframe that includes only the total number of times that each ASV occurs
+readsumsdf_ASVs <- readsumsdf %>% 
+    filter(type == "ASVs")  
+  
+#How many singletons are present?
+length(which(readsumsdf_ASVs$nreads <= 0))
+#Answer: 11
+length(which(readsumsdf_ASVs$nreads == 1))
+#Answer: 0
+
+#How many doubletons are present?
+length(which(readsumsdf_ASVs$nreads == 2))
+#Answer: 29
+
+#Create a bar plot showing the number of times each ASV occurs
+ASV_occurance <- ggplot(data = readsumsdf_ASVs) +
+    geom_bar(mapping = aes(x=nreads)) + 
+    ylim(0, 20) +
+    labs(x = "Number of reads", y = "Number of ASV's") +
+    theme(text = element_text(size = 18), 
+        axis.title = element_text(size = 15),
+        panel.spacing = unit(1, "lines"), 
+        panel.border = element_rect(colour = "black", fill = NA, size = 0.5), 
+        panel.background = element_blank())
+
+print(ASV_occurance)
+```
+
+## Create table showing the number of reads per sample
+
+```{r sample reads}
+
+#Sum reads and sort by samples with least to greatest number of reads
+samples_reads <- sort(sample_sums(Ballast_physeq))
+
+#Create table 
+knitr::kable(samples_reads) %>% 
+  kableExtra::kable_styling("striped", 
+                            latex_options="scale_down") %>% 
+  kableExtra::scroll_box(width = "100%")
+```
+
+## Create a rarefaction curve
 
 ```{r rarefaction, warning = FALSE, messages = FALSE}
 
@@ -107,21 +162,7 @@ raremax <- min(rowSums(mat))
 system.time(rarecurve(mat, step = 100, sample = raremax, col = "blue", label = FALSE))
 ```
 
-### Create table showing the number of reads per sample
-
-```{r}
-
-#Sum reads and sort by samples with least to greatest number of reads
-samples_reads <- sort(sample_sums(Ballast_physeq))
-
-#Create table 
-knitr::kable(samples_reads) %>% 
-  kableExtra::kable_styling("striped", 
-                            latex_options="scale_down") %>% 
-  kableExtra::scroll_box(width = "100%")
-```
-
-### Filter samples
+## Filter samples
 
 Based on the table above, there are some samples with very few to no reads, so we'll filter these out here. In this case, we keep all samples with more than 1,000 reads.
 
@@ -129,6 +170,7 @@ Removing these samples with low sequencing depths is important because samples w
 
 ```{r filter}
 
+#Remove samples with few reads
 Ballast_physeq = subset_samples(Ballast_physeq, 
                             Sample_number != "104")
 Ballast_physeq = subset_samples(Ballast_physeq, 
@@ -142,9 +184,12 @@ Ballast_physeq = subset_samples(Ballast_physeq,
 Ballast_physeq = subset_samples(Ballast_physeq, 
                             Sample_number != "106")
 
+#Filter out low abundance ASVs
+Ballast_physeq = prune_taxa(taxa_sums(Ballast_physeq) > 2, Ballast_physeq)
+
 ```
 
-### Label and order variables
+## Label and order variables
 
 Now we can relabel the variables; if you type in Ballast_physeq you will see that sample_data is the matrix that holds the information that we want to change, so we need to include sample_data in our code here.
 
@@ -153,7 +198,7 @@ Now we can relabel the variables; if you type in Ballast_physeq you will see tha
 #Order factors
 sample_data(Ballast_physeq)$Sample_type <- factor(sample_data(Ballast_physeq)$Sample_type, 
                levels = c("port_uptake", "ocean_uptake", "BWT", "BWT_BWE"),
-               labels = c("port_uptake", "ocean_uptake", "BWT", "BWT_BWE"))
+               labels = c("Port uptake", "Ocean uptake", "BWT", "BWT+BWE"))
 
 sample_data(Ballast_physeq)$Sample_number <- factor(sample_data(Ballast_physeq)$Sample_number, 
                levels = c("80", "81", "82", "83", "84", "85", "86", "87", "88", "89", "90", "91", "92", "93", "94", "95", "96", "97", "98", "100", "101", "102", "103", "110", "111", "112", "113", "114", "115"),
@@ -164,9 +209,9 @@ sample_data(Ballast_physeq)$Voyage <- factor(sample_data(Ballast_physeq)$Voyage,
                labels = c("1", "2"))
 ```
 
-### Abundance transformation
+## Abundance transformation
 
-We have to transform the count data to account for differences in library size between samples. This is often done using rarefaction, but rarefaction results in the elimination of valid data and can also increase the rate of false positives when testing for ASV's that are diferentially abundant in different sample categories.
+We have to transform the count data to account for differences in library size between samples. This is often done using rarefaction, but rarefaction results in the elimination of valid data and can also increase the rate of false positives when testing for ASV's that are differentially abundant in different sample categories.
 
 Additionally, here are some helpful references regarding library normalization strategies:
 
@@ -189,11 +234,11 @@ Alternatively, you could also choose to log-transform the data:
 Ballast_physeqlog = transform_sample_counts(Ballast_physeq, function(x) log(1 + x))
 ```
 
-## Alpha Diversity
+# Alpha Diversity
 
 Note that while these data are not rarefied, they are normalized. We'll use the Shannon diversity index (based on richness AND evenness; examines how many different taxa are present and how evenly they're distributed within a sample) to analyze alpha diversity between variable types. This means it considers both the number of species and the inequality between species abundances.
 
-### Calculate Shannon Diversity per Sample
+## Calculate Shannon Diversity per Sample
 
 Using the estimate_richness function in the phyloseq package to calculate Shannon diversity. The estimate_richness function can also take measures "Chao1" "ACE" "Simpson" and "Fisher".
 
@@ -203,75 +248,86 @@ Note that running this code results in an error message stating that the provide
 
 <https://forum.qiime2.org/t/singletons-and-diversity-richness-indices/2971/9>
 
-```{r shannon}
+```{r shannon, warning = FALSE, messages = FALSE}
 
 #Calculating richness - Shannon diversity in a new dataframe
-#richness <- data.frame(estimate_richness(Ballast_physeqRA, measures = c("Shannon")))
-#richness <- setNames(cbind(rownames(richness), richness, row.names = NULL), 
-#                     c("sample-id", "Shannon"))
+richness <- data.frame(estimate_richness(Ballast_physeqRA, measures = c("Shannon")))
+richness <- setNames(cbind(rownames(richness), richness, row.names = NULL), 
+                     c("sample-id", "Shannon"))
 
 #Add the sample metadata to the dataframe
-#s <- data.frame(sample_data(Ballast_physeqRA))
-#s <- setNames(cbind(rownames(s), s, row.names = NULL), 
-#              c("sample-id", "effluent", "week", "polymer_type", 
-#                "bead_diameter", "Channel", "sample_type", "particle_type"))
+s <- data.frame(sample_data(Ballast_physeqRA))
+s <- setNames(cbind(rownames(s), s, row.names = NULL), 
+              c("sample-id", "Sample_type", "Voyage", "Tank", 
+                "Sample_number", "Sample_site", "Sample_date"))
 
-#alphadiv <- merge(s, richness, by = "sample-id")
+alphadiv <- merge(s, richness, by = "sample-id")
 
 #Order factors
-#alphadiv$polymer_type <- factor(alphadiv$polymer_type, 
-#                        levels = c("Glass", "HDPE", "LDPE", "PP", "PS", "Water"),
-#                       labels = c("Glass", "HDPE", "LDPE", "PP", "PS", "Water")) 
+alphadiv$Sample_type <- factor(alphadiv$Sample_type, 
+                      levels = c("Port uptake", "Ocean uptake", "BWT", "BWT+BWE"),
+                      labels = c("Port uptake", "Ocean uptake", "BWT", "BWT+BWE")) 
 
 #Shows the calculated indices
-#knitr::kable(head(alphadiv)) %>% 
-  #kableExtra::kable_styling("striped", 
-  #                          latex_options="scale_down") %>% 
-  #kableExtra::scroll_box(width = "100%")
+knitr::kable(head(alphadiv)) %>% 
+  kableExtra::kable_styling("striped", latex_options="scale_down") %>% 
+  kableExtra::scroll_box(width = "100%")
 ```
 
-### Create Alpha Diversity Boxplots
+## Create Alpha Diversity Boxplots
 
-#### Comparison: particles vs. water
+### Comparison: sample type
 
 ```{r boxplot}
 
 #Plot
-#ggplot(data=alphadiv, aes(x=sample_type, y=Shannon), alpha=0.1) + 
-#  geom_boxplot(aes(fill=sample_type)) +
-#  geom_point(position=position_dodge(width=0.75),aes(group=sample_type)) +
-#  facet_wrap(~effluent, scale="free") +
-#  theme(legend.position="right",
-#        panel.border = element_rect(colour = "black", fill = NA, size = 0.5), 
-#        panel.background = element_blank())
+ggplot(data=alphadiv, aes(x=Sample_type, y=Shannon), alpha=0.1) + 
+  geom_boxplot(aes(fill=Sample_type)) +
+  geom_point(position=position_dodge(width=0.75),aes(group=Sample_type)) +
+  theme(legend.position="right",
+        panel.border = element_rect(colour = "black", fill = NA, size = 0.5), 
+        panel.background = element_blank())
 ```
 
-#### Comparison: particle types (microplastic, glass, or water) between effluent sources
+### Comparison: sample type and voyage
 
 ```{r boxplot2}
 
 #Plot
-#ggplot(data=alphadiv, aes(x=effluent, y=Shannon), alpha=0.1) + 
-#  geom_boxplot(aes(fill=effluent)) +
-#  geom_point(position=position_dodge(width=0.75),aes(group=effluent)) +
-#  facet_wrap(~particle_type, scale="free") +
-#  theme(legend.position="right",
-#        panel.border = element_rect(colour = "black", fill = NA, size = 0.5), 
-#        panel.background = element_blank())
+ggplot(data=alphadiv, aes(x=Voyage, y=Shannon), alpha=0.1) + 
+  geom_boxplot(aes(fill=Sample_type)) +
+  geom_point(position=position_dodge(width=0.75),aes(group=Sample_type)) +
+  facet_wrap(~Sample_type, scale="free") +
+  theme(legend.position="right",
+        panel.border = element_rect(colour = "black", fill = NA, size = 0.5), 
+        panel.background = element_blank())
 ```
 
-### Alpha Diversity statistics
+## Alpha Diversity statistics
 
-## Ordination plots
+Perform Wilcoxon test.
 
-### Find plot color hex codes
+```{r alpha stats}
+
+
+
+```
+
+# Ordination plots
+
+## Find plot color hex codes
 
 ```{r colors}
 
+#For points
 brewer.pal(4, "Dark2")
+
+#For lines
+brewer.pal(3, "Set1")
+
 ```
 
-### Create NMDS with the Bray-Curtis dissimilarity matrix
+## Create NMDS with the Bray-Curtis dissimilarity matrix
 
 Here, we use the relative abundance transformed data to create an NMDS plot.
 
@@ -289,7 +345,7 @@ all.nmds.source.ord <- ordinate(
 all.nmds.sample.type <- plot_ordination(
   physeq = Ballast_physeqRA,
   ordination = all.nmds.source.ord) + 
-  scale_colour_manual(values = c("port_uptake" = "#E7298A", "ocean_uptake" = "#7570B3", "BWT" = "#1B9E77", "BWT_BWE" = "#D95F02"), "Sample Type") +
+  scale_colour_manual(values = c("Port uptake" = "#E7298A", "Ocean uptake" = "#7570B3", "BWT" = "#1B9E77", "BWT+BWE" = "#D95F02"), "Sample Type") +
   scale_shape_manual(values = c("1" = 16, "2" = 17), name = "Voyage") +
   geom_point(mapping = aes(colour = factor(Sample_type), shape = factor(Voyage), size = 5)) +
   guides(size=FALSE) +
@@ -308,7 +364,7 @@ print(all.nmds.sample.type)
 
 ```
 
-### Create PCoA with the Bray-Curtis dissimilarity matrix
+## Create PCoA with the Bray-Curtis dissimilarity matrix
 
 ```{r PCoA Bray}
 
@@ -322,7 +378,7 @@ all.pcoa.source.ord <- ordinate(
 all.pcoa.sample.type <- plot_ordination(
   physeq = Ballast_physeqRA,
   ordination = all.pcoa.source.ord) + 
-  scale_colour_manual(values = c("port_uptake" = "#E7298A", "ocean_uptake" = "#7570B3", "BWT" = "#1B9E77", "BWT_BWE" = "#D95F02"), "Sample Type") +
+  scale_colour_manual(values = c("Port uptake" = "#E7298A", "Ocean uptake" = "#7570B3", "BWT" = "#1B9E77", "BWT+BWE" = "#D95F02"), "Sample Type") +
   scale_shape_manual(values = c("1" = 16, "2" = 17), name = "Voyage") +
   geom_point(mapping = aes(colour = factor(Sample_type), shape = factor(Voyage), size = 5)) +
   geom_text(aes(label = Sample_number, colour = factor(Sample_type)), nudge_x=0.05, nudge_y=0.05, check_overlap = TRUE) +
@@ -336,7 +392,23 @@ all.pcoa.sample.type <- plot_ordination(
         panel.background = element_blank(), 
         legend.text = element_text(size = 15),
         legend.title = element_text(size = 15),
-        legend.justification = c("right", "top")) 
+        legend.justification = c("right", "top")) +
+  geom_segment(
+  aes(x = -0.45, y = -0.30, xend = 0.30, yend = -0.30),
+  arrow = arrow(length = unit(0.03, "npc"))) +
+   geom_segment(
+  aes(x = -0.08, y = 0.03, xend = 0.29, yend = -0.08),
+  arrow = arrow(length = unit(0.03, "npc")), colour = "#E41A1C") +
+   geom_segment(
+  aes(x = -0.14, y = 0.35, xend = 0.04, yend = 0.34),
+  arrow = arrow(length = unit(0.03, "npc"))) +
+  geom_curve(
+  aes(x = -0.14, y = 0.43, xend = 0.25, yend = 0.21),
+  arrow = arrow(length = unit(0.03, "npc")), curvature = -0.3) +
+  geom_segment(
+  aes(x = 0.06, y = 0.34, xend = 0.29, yend = -0.08),
+  arrow = arrow(length = unit(0.03, "npc")), colour = "#E41A1C") 
+  
 
 print(all.pcoa.sample.type)
 
@@ -344,8 +416,7 @@ print(all.pcoa.sample.type)
 
 ### 
 
-
-## Preliminary taxonomy fix
+# Preliminary taxonomy fix
 
 Some of the taxonomic levels in the phyloseq object have NA's or short values such as "g\_" which are uninformative when graphing bacterial taxonomy at those levels. The tax_fix function from the microViz package fills in these unknown values with useful information from higher taxonomic levels.
 
@@ -367,16 +438,244 @@ knitr::kable(head(tax_table(Ballast_physeq))) %>%
   kableExtra::scroll_box(width = "100%")
 ```
 
-## Bacterial community composition bar charts
+# Bacterial community composition bar charts
 
-### Family level, grouped by sample type
+## Find color hex codes
 
-```{r barcharts}
+I've included here a list of hex codes for colors that can be used to identify taxa in plots of bacterial community composition; these hex codes are visualized with the seecolor package.
+
+```{r bcc hex, messages = FALSE}
+
+bcc_hex <- print_color(c("black", "#440154FF", "#450659FF","#460B5EFF","#472D7AFF","#3B518BFF", "#3A548CFF", "#38598CFF", "#365C8DFF", "#34608DFF", "#33638DFF", "#31678EFF", "#306A8EFF","#2E6E8EFF", "#2D718EFF", "#2B748EFF","#2A778EFF", "#297B8EFF","#1F958BFF", "#1F988BFF", "#1E9C89FF", "#1F9F88FF","#1FA287FF", "#21A585FF", "#23A983FF","#25AC82FF", "#29AF7FFF", "#2DB27DFF","#32B67AFF", "#37B878FF", "#3CBC74FF","#57C766FF", "#5EC962FF","#A2DA37FF","#DAE319FF", "#E4E419FF",  "#ECE51BFF", "#F5E61FFF","darkorchid1", "darkorchid2", "darkorchid3","#A21C9AFF", "#A62098FF", "#AB2394FF", "#AE2892FF", "#B22B8FFF", "#B6308BFF", "#BA3388FF", "#BE3885FF", "#C13B82FF", "#C53F7EFF","#C8437BFF", "#CC4678FF", "#CE4B75FF", "#D14E72FF", "#D5536FFF", "#D7566CFF", "#DA5B69FF", "#DD5E66FF", "#E06363FF","#FF6699","#F68D45FF", "#FCA537FF","#F6E726FF", "#F4ED27FF", "#00489C", "#CCCCCC", "#999999", "#A1C299","#300018"), type = "r")
+
+print(bcc_hex)
+```
+
+## Family level, individual samples
+
+```{r bcc sample id}
+
+#Examining BCC in each individual sample first
+BallastSeqR_family <- Ballast_physeq %>%
+  tax_glom(taxrank = "Family") %>%                    #Agglomerate at family level
+  transform_sample_counts(function(x) {x/sum(x)}) %>% #Transform to rel. abundance
+  psmelt() %>%                                        # Melt to long format
+  group_by(Sample, 
+           Kingdom, Phylum, Class, Order, Family) %>%
+  filter(Abundance > 0.01) %>%                        #Filter 
+  arrange(Class)
+
+#Creating a new column that combines both the Class and Family level information
+#so that Family level identifiers that are not unique to one Class (such as Ambiguous_taxa) aren't merged into a single large category when graphed
+BallastSeqR_family$Class_family <- paste(BallastSeqR_family$Class, BallastSeqR_family$Family, sep="_")
+
+#Creating plot  
+BallastSeqR_family_bar <- ggplot(BallastSeqR_family, aes(x = Sample, y = Abundance, fill = Class_family)) + 
+  geom_bar(stat="identity", colour = "black", size=0.3, position = "fill") +
+  scale_fill_manual(values = c("black", 
+                               
+                               "#440154FF", "#450659FF","#460B5EFF",
+                               
+                               "#472D7AFF", 
+                               
+                               "#3B518BFF", "#3A548CFF", "#38598CFF", "#365C8DFF", 
+                               "#34608DFF", "#33638DFF", "#31678EFF", "#306A8EFF",
+                               "#2E6E8EFF", "#2D718EFF", "#2B748EFF",
+                               "#2A778EFF", "#297B8EFF",
+                               
+                               "#1F958BFF", "#1F988BFF", "#1E9C89FF", "#1F9F88FF",
+                               "#1FA287FF", "#21A585FF", "#23A983FF",
+                               "#25AC82FF", "#29AF7FFF", "#2DB27DFF",
+                               "#32B67AFF", "#37B878FF", "#3CBC74FF",
+                               
+                               "#57C766FF", "#5EC962FF",
+                               
+                               "#A2DA37FF",
+                               
+                               "#DAE319FF", "#E4E419FF",  "#ECE51BFF", "#F5E61FFF",
+                               
+                               "darkorchid1", "darkorchid2", "darkorchid3", 
+                               
+                               "#A21C9AFF", "#A62098FF", "#AB2394FF", "#AE2892FF", "#B22B8FFF", "#B6308BFF", "#BA3388FF", "#BE3885FF", "#C13B82FF", "#C53F7EFF",
+                               "#C8437BFF", "#CC4678FF", "#CE4B75FF", "#D14E72FF", "#D5536FFF", "#D7566CFF", "#DA5B69FF", "#DD5E66FF", "#E06363FF",
+                               
+                               "#FF6699",
+                               
+                               "#F68D45FF", "#FCA537FF",
+                               
+                               "#F6E726FF", "#F4ED27FF", 
+                               
+                               
+                               "#00489C", "#CCCCCC", "#999999", "#A1C299", "#300018",
+                               
+                               "#00489C", "#CCCCCC", "#999999", "#A1C299", "#300018",
+                               "#00489C", "#CCCCCC", "#999999", "#A1C299", "#300018",
+                               "#00489C", "#CCCCCC", "#999999", "#A1C299", "#300018")) +
+  
+  guides(fill = guide_legend(reverse = FALSE, keywidth = 1, keyheight = 1)) +
+  ylab("Relative Abundance (Family > 1%) \n") + xlab("Sample ID") +
+  theme_minimal()+theme(panel.border = element_rect(fill=NA, colour = "black"), panel.grid.minor = element_blank(), 
+                        panel.grid.major = element_blank(), axis.text.x  = element_text(angle = 90, vjust = 0.5, hjust=1, size=8, colour="black"), 
+                        axis.text.y = element_text(size=8, colour="black"), plot.title = element_text(hjust = 0.5), 
+                        axis.ticks.x = element_line(colour="#000000", size=0.1), axis.ticks.y = element_line(colour="#000000", size=0.1),
+                        legend.text = element_text(size = 7))  
+
+print(BallastSeqR_family_bar)
+
+#Make interactive plot
+ggplotly(BallastSeqR_family_bar)
+
+```
+
+## Family level, grouped by sample type
+
+```{r bcc sample type}
+
+#Examining BCC by sample type
+BallastSeqR_family_sample <- Ballast_physeq %>%
+  tax_glom(taxrank = "Family") %>%                    #Agglomerate at family level
+  transform_sample_counts(function(x) {x/sum(x)}) %>% #Transform to rel. abundance
+  psmelt() %>%                                        # Melt to long format
+  group_by(Sample_type, 
+           Kingdom, Phylum, Class, Order, Family) %>%
+  dplyr::summarize(Mean = 
+                     mean(Abundance, na.rm=TRUE)) %>% #Calculate average
+  filter(Mean > 0.01) %>%                             #Filter 
+  arrange(Class)
+
+#Creating a new column that combines both the Class and Family level information
+#so that Family level identifiers that are not unique to one Class (such as Ambiguous_taxa) aren't merged into a single large category when graphed
+BallastSeqR_family_sample$Class_family <- paste(BallastSeqR_family_sample$Class, BallastSeqR_family_sample$Family, sep="_")
+
+#Creating plot  
+BallastSeqR_sample_family_bar <- ggplot(BallastSeqR_family_sample, aes(x = Sample_type, y = Mean, fill = Class_family)) + 
+  geom_bar(stat="identity", colour = "black", size=0.3, position = "fill") +
+  scale_fill_manual(values = c("black", "#440154FF", "#450659FF","#460B5EFF","#472D7AFF", "#3B518BFF", "#3A548CFF", "#38598CFF", "#365C8DFF","#34608DFF", "#33638DFF", "#31678EFF", "#306A8EFF","#2E6E8EFF", "#2D718EFF", "#2B748EFF","#2A778EFF", "#297B8EFF","#1F958BFF", "#1F988BFF", "#1E9C89FF", "#1F9F88FF",
+"#1FA287FF", "#21A585FF", "#23A983FF","#25AC82FF", "#29AF7FFF", "#2DB27DFF","#32B67AFF", "#37B878FF", "#3CBC74FF","#57C766FF", "#5EC962FF","#A2DA37FF",
+"#DAE319FF", "#E4E419FF",  "#ECE51BFF", "#F5E61FFF","darkorchid1", "darkorchid2", "darkorchid3", "#A21C9AFF", "#A62098FF", "#AB2394FF", "#AE2892FF", "#B22B8FFF", "#B6308BFF", "#BA3388FF", "#BE3885FF", "#C13B82FF", "#C53F7EFF","#C8437BFF", "#CC4678FF", "#CE4B75FF", "#D14E72FF", "#D5536FFF", "#D7566CFF", "#DA5B69FF", "#DD5E66FF", "#E06363FF","#FF6699","#F68D45FF", "#FCA537FF","#F6E726FF", "#F4ED27FF", "#00489C", "#CCCCCC", "#999999", "#A1C299", "#300018","#00489C", "#CCCCCC", "#999999", "#A1C299", "#300018","#00489C", "#CCCCCC", "#999999", "#A1C299", "#300018","#00489C", "#CCCCCC", "#999999", "#A1C299", "#300018")) +
+  
+  guides(fill = guide_legend(reverse = FALSE, keywidth = 1, keyheight = 1)) +
+  ylab("Relative Abundance (Family > 1%) \n") + xlab("Sample ID") +
+  theme_minimal()+theme(panel.border = element_rect(fill=NA, colour = "black"), panel.grid.minor = element_blank(), 
+                        panel.grid.major = element_blank(), axis.text.x  = element_text(angle = 90, vjust = 0.5, hjust=1, size=8, colour="black"), 
+                        axis.text.y = element_text(size=8, colour="black"), plot.title = element_text(hjust = 0.5), 
+                        axis.ticks.x = element_line(colour="#000000", size=0.1), axis.ticks.y = element_line(colour="#000000", size=0.1),
+                        legend.text = element_text(size = 7))  
+
+print(BallastSeqR_sample_family_bar)
+
+#Make interactive plot
+ggplotly(BallastSeqR_sample_family_bar)
+
+```
+
+## Family level, grouped by sample type and voyage
+
+Creating the same bar plot as above, but with subsets within sample type showing the different voyages, since similar sample types that were collected during different voyages cluster seperately on the NMDS and PCoA plots.
+
+```{r}
+
+#Examining BCC by sample type & voyage
+BallastSeqR_family_voyage <- Ballast_physeq %>%
+  tax_glom(taxrank = "Family") %>%                    #Agglomerate at family level
+  transform_sample_counts(function(x) {x/sum(x)}) %>% #Transform to rel. abundance
+  psmelt() %>%                                        # Melt to long format
+  group_by(Sample_type, Voyage, 
+           Kingdom, Phylum, Class, Order, Family) %>%
+  dplyr::summarize(Mean = 
+                     mean(Abundance, na.rm=TRUE)) %>% #Calculate average
+  filter(Mean > 0.01) %>%                             #Filter 
+  arrange(Class)
+
+#Creating a new column that combines both the Class and Family level information
+#so that Family level identifiers that are not unique to one Class (such as Ambiguous_taxa) aren't merged into a single large category when graphed
+BallastSeqR_family_voyage$Class_family <- paste(BallastSeqR_family_voyage$Class, BallastSeqR_family_voyage$Family, sep="_")
+
+#Creating plot  
+BallastSeqR_voyage_family_bar <- ggplot(BallastSeqR_family_voyage, aes(x = Voyage, y = Mean, fill = Class_family)) + 
+  geom_bar(stat="identity", colour = "black", size=0.3, position = "fill") +
+  scale_fill_manual(values = c("black", "#440154FF", "#450659FF","#460B5EFF","#472D7AFF", "#3B518BFF", "#3A548CFF", "#38598CFF", "#365C8DFF","#34608DFF", "#33638DFF", "#31678EFF", "#306A8EFF","#2E6E8EFF", "#2D718EFF", "#2B748EFF","#2A778EFF", "#297B8EFF","#1F958BFF", "#1F988BFF", "#1E9C89FF", "#1F9F88FF",
+"#1FA287FF", "#21A585FF", "#23A983FF","#25AC82FF", "#29AF7FFF", "#2DB27DFF","#32B67AFF", "#37B878FF", "#3CBC74FF","#57C766FF", "#5EC962FF","#A2DA37FF",
+"#DAE319FF", "#E4E419FF",  "#ECE51BFF", "#F5E61FFF","darkorchid1", "darkorchid2", "darkorchid3", "#A21C9AFF", "#A62098FF", "#AB2394FF", "#AE2892FF", "#B22B8FFF", "#B6308BFF", "#BA3388FF", "#BE3885FF", "#C13B82FF", "#C53F7EFF","#C8437BFF", "#CC4678FF", "#CE4B75FF", "#D14E72FF", "#D5536FFF", "#D7566CFF", "#DA5B69FF", "#DD5E66FF", "#E06363FF","#FF6699","#F68D45FF", "#FCA537FF","#F6E726FF", "#F4ED27FF", "#00489C", "#CCCCCC", "#999999", "#A1C299", "#300018","#00489C", "#CCCCCC", "#999999", "#A1C299", "#300018","#00489C", "#CCCCCC", "#999999", "#A1C299", "#300018","#00489C", "#CCCCCC", "#999999", "#A1C299", "#300018")) +
+  
+  guides(fill = guide_legend(reverse = FALSE, keywidth = 1, keyheight = 1)) +
+  ylab("Relative Abundance (Family > 1%) \n") + xlab("Voyage") +
+  theme_minimal()+theme(panel.border = element_rect(fill=NA, colour = "black"), 
+  panel.grid.minor = element_blank(),
+  panel.grid.major = element_blank(), 
+  axis.text.x  = element_text(angle = 90, vjust = 0.5, hjust=1, size=8, 
+                              colour="black"), 
+  axis.text.y = element_text(size=8, colour="black"), 
+  plot.title = element_text(hjust = 0.5), 
+  axis.ticks.x = element_line(colour="#000000", size=0.1), 
+  axis.ticks.y = element_line(colour="#000000", size=0.1),
+  legend.text = element_text(size = 7)) +
+  facet_grid(. ~ Sample_type, margins = TRUE, scale="free")
+
+print(BallastSeqR_voyage_family_bar)
+
+#Make interactive plot
+ggplotly(BallastSeqR_voyage_family_bar)
+```
+
+# PICRUSt2 analysis
+
+## Load PICRUSt2 and dependent packages
+
+```{r picrust packages, warning=FALSE}
+
+library("ggpicrust2")
+library("phyloseq")
+library("ALDEx2")
+library("SummarizedExperiment")
+library("Biobase")
+library("devtools")
+library("ComplexHeatmap")
+library("BiocGenerics")
+library("BiocManager")
+library("metagenomeSeq")
+library("Maaslin2")
+library("edgeR")
+library("lefser")
+library("limma")
+library("KEGGREST")
+library("DESeq2")
+library("aplot")
+library("dplyr")
+library("ggplot2")
+library("grid")
+library("MicrobiomeStat")
+library("readr")
+library("stats")
+library("tibble")
+library("tidyr")
+library("ggprism")
+library("cowplot")
+library("ggforce")
+library("ggplotify")
+library("magrittr")
+library("utils")
+ 
+         
+```
+
+## Load data (KO's)
+
+```{r picrust data}
+
 
 
 ```
 
-## Session Info
+## Load data (MetaCyc)
+
+```{r picrust metacyc data}
+
+
+
+```
+
+# Session Info
 
 ```{r info}
 

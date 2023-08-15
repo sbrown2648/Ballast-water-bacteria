@@ -18,7 +18,7 @@ Ship-Ballast-95-10-23-16-SA-1-Dis-5-1	BWT_BWE	1	5	95	Port McNeill	23-Oct-16	trea
 Ship-Ballast-96-10-23-16-SA-1-Dis-5-2	BWT_BWE	1	5	96	Port McNeill	23-Oct-16	treatment + exchange
 Ship-Ballast-97-10-23-16-SA-1-Dis-5-3	BWT_BWE	1	5	97	Port McNeill	23-Oct-16	treatment + exchange
 Ship-Ballast-98-02-01-17-SA-2-tank-6-uptake-1	port_uptake	2	6	98	Antioch	1-Feb-17	
-Ship-Ballast-99-02-01-17-SA-2-tank-6-uptake-2	port_uptake	2	6	98	Antioch	1-Feb-17	
+Ship-Ballast-99-02-01-17-SA-2-tank-6-uptake-2	port_uptake	2	6	99	Antioch	1-Feb-17	
 Ship-Ballast-100-02-01-17-SA-2-tank-6-uptake-3	port_uptake	2	6	100	Antioch	1-Feb-17	
 Ship-Ballast-101-02-01-17-SA-2-tank-2-uptake-1	port_uptake	2	2	101	Antioch	1-Feb-17	
 Ship-Ballast-102-02-01-17-SA-2-tank-2-uptake-2	port_uptake	2	2	102	Antioch	1-Feb-17	
@@ -32,9 +32,9 @@ Ship-Ballast-109-02-05-17-SA-2-Dis2B-3	BWT_BWE	2	2	109	Port McNeill	7-Feb-17	tre
 Ship-Ballast-110-02-05-17-SA-2-Dis6-1	BWT	2	6	110	Port McNeill	7-Feb-17	treatment only
 Ship-Ballast-111-02-05-17-SA-2-Dis6-2	BWT	2	6	111	Port McNeill	7-Feb-17	treatment only
 Ship-Ballast-112-02-05-17-SA-2-Dis6-3	BWT	2	6	112	Port McNeill	7-Feb-17	treatment only
-Ship-Ballast-113-02-05-17-SA-2-Dis2B-1	BWT_BWE	2	6	113	Port McNeill	7-Feb-17	treatment + exchange
-Ship-Ballast-114-02-05-17-SA-2-Dis2B-2	BWT_BWE	2	6	114	Port McNeill	7-Feb-17	treatment + exchange
-Ship-Ballast-115-02-05-17-SA-2-Dis2B-3	BWT_BWE	2	6	115	Port McNeill	7-Feb-17	treatment + exchange
+Ship-Ballast-113-02-05-17-SA-2-Dis2B-1	BWT	2	6	113	Port McNeill	7-Feb-17	treatment only
+Ship-Ballast-114-02-05-17-SA-2-Dis2B-2	BWT	2	6	114	Port McNeill	7-Feb-17	treatment only
+Ship-Ballast-115-02-05-17-SA-2-Dis2B-3	BWT	2	6	115	Port McNeill	7-Feb-17	treatment only
 Control-MM1-Mock-Microbiome	control						
 Control-MM2-Mock-Microbiome	control						
 Control-MM3-Mock-Microbiome	control						
