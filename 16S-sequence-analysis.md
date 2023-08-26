@@ -66,15 +66,24 @@ July 19, 2023
     -   <a href="#64-family-level-grouped-by-sample-type-and-voyage"
         id="toc-64-family-level-grouped-by-sample-type-and-voyage">6.4 Family
         level, grouped by sample type and voyage</a>
--   <a href="#7-picrust2-analysis" id="toc-7-picrust2-analysis">7 PICRUSt2
-    analysis</a>
-    -   <a href="#71-load-picrust2-and-dependent-packages"
-        id="toc-71-load-picrust2-and-dependent-packages">7.1 Load PICRUSt2 and
-        dependent packages</a>
-    -   <a href="#72-load-data-kos" id="toc-72-load-data-kos">7.2 Load data
-        (KO’s)</a>
-    -   <a href="#73-load-data-metacyc" id="toc-73-load-data-metacyc">7.3 Load
-        data (MetaCyc)</a>
+-   <a href="#7-deseq2-analysis-on-metacyc-data"
+    id="toc-7-deseq2-analysis-on-metacyc-data">7 DESeq2 analysis on MetaCyc
+    data</a>
+    -   <a href="#71-create-the-deseq-object"
+        id="toc-71-create-the-deseq-object">7.1 Create the DESeq object</a>
+    -   <a href="#72-load-pathway-descriptions"
+        id="toc-72-load-pathway-descriptions">7.2 Load pathway descriptions</a>
+    -   <a href="#73-create-pca-of-all-metacyc-results-in-deseq2"
+        id="toc-73-create-pca-of-all-metacyc-results-in-deseq2">7.3 Create PCA
+        of all MetaCyc results in DESeq2</a>
+    -   <a href="#74-create-pcoa-of-all-metacyc-results"
+        id="toc-74-create-pcoa-of-all-metacyc-results">7.4 Create PCoA of all
+        MetaCyc results</a>
+    -   <a href="#75-bwt-vs-port-uptake" id="toc-75-bwt-vs-port-uptake">7.5 BWT
+        vs port uptake</a>
+        -   <a href="#751-create-dot-plot-of-results---log2fold-change"
+            id="toc-751-create-dot-plot-of-results---log2fold-change">7.5.1 Create
+            dot plot of results - log2fold change</a>
 -   <a href="#8-session-info" id="toc-8-session-info">8 Session Info</a>
 
 # 1 Load Packages and Import Data
@@ -393,7 +402,44 @@ library(plotly)
 
 ``` r
 library(seecolor)
+library(tibble)
+library(tidyverse)
+```
 
+    ## ── Attaching core tidyverse packages ──────────────────────── tidyverse 2.0.0 ──
+    ## ✔ forcats   1.0.0     ✔ readr     2.1.4
+    ## ✔ lubridate 1.9.2     ✔ stringr   1.5.0
+    ## ✔ purrr     1.0.1
+
+    ## ── Conflicts ────────────────────────────────────────── tidyverse_conflicts() ──
+    ## ✖ lubridate::%within%()    masks IRanges::%within%()
+    ## ✖ plotly::arrange()        masks dplyr::arrange(), plyr::arrange()
+    ## ✖ readr::col_factor()      masks scales::col_factor()
+    ## ✖ IRanges::collapse()      masks nlme::collapse(), dplyr::collapse()
+    ## ✖ Biobase::combine()       masks BiocGenerics::combine(), dplyr::combine()
+    ## ✖ purrr::compact()         masks plyr::compact()
+    ## ✖ matrixStats::count()     masks dplyr::count(), plyr::count()
+    ## ✖ IRanges::desc()          masks dplyr::desc(), plyr::desc()
+    ## ✖ purrr::discard()         masks scales::discard()
+    ## ✖ S4Vectors::expand()      masks tidyr::expand()
+    ## ✖ dplyr::failwith()        masks plyr::failwith()
+    ## ✖ plotly::filter()         masks dplyr::filter(), stats::filter()
+    ## ✖ S4Vectors::first()       masks dplyr::first()
+    ## ✖ dplyr::id()              masks plyr::id()
+    ## ✖ dplyr::lag()             masks stats::lag()
+    ## ✖ plotly::mutate()         masks dplyr::mutate(), plyr::mutate()
+    ## ✖ BiocGenerics::Position() masks ggplot2::Position(), base::Position()
+    ## ✖ purrr::reduce()          masks GenomicRanges::reduce(), IRanges::reduce()
+    ## ✖ plotly::rename()         masks S4Vectors::rename(), dplyr::rename(), plyr::rename()
+    ## ✖ lubridate::second()      masks S4Vectors::second()
+    ## ✖ lubridate::second<-()    masks S4Vectors::second<-()
+    ## ✖ plotly::slice()          masks IRanges::slice(), dplyr::slice()
+    ## ✖ plotly::summarise()      masks dplyr::summarise(), plyr::summarise()
+    ## ✖ dplyr::summarize()       masks plyr::summarize()
+    ## ✖ ape::where()             masks dplyr::where()
+    ## ℹ Use the conflicted package (<http://conflicted.r-lib.org/>) to force all conflicts to become errors
+
+``` r
 set.seed(13745)
 
 #Create a phyloseq object from the .qza files exported from qiime2 using 
@@ -1023,7 +1069,7 @@ system.time(rarecurve(mat, step = 100, sample = raremax, col = "blue", label = F
 ![](16S-sequence-analysis_files/figure-gfm/rarefaction-1.png)<!-- -->
 
     ##    user  system elapsed 
-    ##    0.33    0.02    0.36
+    ##    0.11    0.00    0.13
 
 ## 2.4 Filter samples
 
@@ -2512,10 +2558,28 @@ print(BallastSeqR_family_bar)
 
 ``` r
 #Make interactive plot
-ggplotly(BallastSeqR_family_bar)
+BallastSeqR_family_bar_interactive <- ggplotly(BallastSeqR_family_bar)
+
+BallastSeqR_family_bar_interactive
 ```
 
 ![](16S-sequence-analysis_files/figure-gfm/bcc%20sample%20id-2.png)<!-- -->
+
+``` r
+#Save html of interactive plot on knit
+htmlwidgets::saveWidget(BallastSeqR_family_bar_interactive, "BallastSeqR_family_bar_interactive.html")
+
+htmltools::tags$iframe(
+  src=file.path(getwd(), "BallastSeqR_family_bar_interactive.html"),
+  width="100%",
+  height="600",
+  scrolling="no",
+  seamless="seamless",
+  frameBorder="0"
+)
+```
+
+<iframe src="C:/Users/SBROWN13/OneDrive - Environmental Protection Agency (EPA)/Ballast water/Ballast-water-bacteria/BallastSeqR_family_bar_interactive.html" width="100%" height="600" scrolling="no" seamless="seamless" frameBorder="0"></iframe>
 
 ## 6.3 Family level, grouped by sample type
 
@@ -2563,10 +2627,28 @@ print(BallastSeqR_sample_family_bar)
 
 ``` r
 #Make interactive plot
-ggplotly(BallastSeqR_sample_family_bar)
+BallastSeqR_sample_family_bar_interactive <- ggplotly(BallastSeqR_sample_family_bar)
+
+BallastSeqR_sample_family_bar_interactive
 ```
 
 ![](16S-sequence-analysis_files/figure-gfm/bcc%20sample%20type-2.png)<!-- -->
+
+``` r
+#Save html of interactive plot on knit
+htmlwidgets::saveWidget(BallastSeqR_sample_family_bar_interactive, "BallastSeqR_sample_family_bar_interactive.html")
+
+htmltools::tags$iframe(
+  src=file.path(getwd(), "BallastSeqR_sample_family_bar_interactive.html"),
+  width="100%",
+  height="600",
+  scrolling="no",
+  seamless="seamless",
+  frameBorder="0"
+)
+```
+
+<iframe src="C:/Users/SBROWN13/OneDrive - Environmental Protection Agency (EPA)/Ballast water/Ballast-water-bacteria/BallastSeqR_sample_family_bar_interactive.html" width="100%" height="600" scrolling="no" seamless="seamless" frameBorder="0"></iframe>
 
 ## 6.4 Family level, grouped by sample type and voyage
 
@@ -2621,208 +2703,409 @@ BallastSeqR_voyage_family_bar <- ggplot(BallastSeqR_family_voyage, aes(x = Voyag
 print(BallastSeqR_voyage_family_bar)
 ```
 
-![](16S-sequence-analysis_files/figure-gfm/unnamed-chunk-1-1.png)<!-- -->
+![](16S-sequence-analysis_files/figure-gfm/bcc%20sample%20type%20and%20voyage-1.png)<!-- -->
 
 ``` r
 #Make interactive plot
-ggplotly(BallastSeqR_voyage_family_bar)
+p <- ggplotly(BallastSeqR_voyage_family_bar)
+
+p
 ```
 
-![](16S-sequence-analysis_files/figure-gfm/unnamed-chunk-1-2.png)<!-- -->
-
-# 7 PICRUSt2 analysis
-
-## 7.1 Load PICRUSt2 and dependent packages
+![](16S-sequence-analysis_files/figure-gfm/bcc%20sample%20type%20and%20voyage-2.png)<!-- -->
 
 ``` r
-library("ggpicrust2")
-library("phyloseq")
-library("ALDEx2")
+htmlwidgets::saveWidget(p, "BallastSeqR_voyage_family_bar_interactive.html")
+
+htmltools::tags$iframe(
+  src=file.path(getwd(), "BallastSeqR_voyage_family_bar_interactive.html"),
+  width="100%",
+  height="600",
+  scrolling="no",
+  seamless="seamless",
+  frameBorder="0"
+)
 ```
 
-    ## Loading required package: zCompositions
+<iframe src="C:/Users/SBROWN13/OneDrive - Environmental Protection Agency (EPA)/Ballast water/Ballast-water-bacteria/BallastSeqR_voyage_family_bar_interactive.html" width="100%" height="600" scrolling="no" seamless="seamless" frameBorder="0"></iframe>
 
-    ## Loading required package: MASS
+# 7 DESeq2 analysis on MetaCyc data
 
-    ## 
-    ## Attaching package: 'MASS'
-
-    ## The following object is masked from 'package:plotly':
-    ## 
-    ##     select
-
-    ## The following object is masked from 'package:patchwork':
-    ## 
-    ##     area
-
-    ## The following object is masked from 'package:dplyr':
-    ## 
-    ##     select
-
-    ## Loading required package: NADA
-
-    ## Loading required package: survival
-
-    ## 
-    ## Attaching package: 'NADA'
-
-    ## The following object is masked from 'package:IRanges':
-    ## 
-    ##     cor
-
-    ## The following object is masked from 'package:S4Vectors':
-    ## 
-    ##     cor
-
-    ## The following object is masked from 'package:stats':
-    ## 
-    ##     cor
-
-    ## Loading required package: truncnorm
+## 7.1 Create the DESeq object
 
 ``` r
-library("SummarizedExperiment")
-library("Biobase")
-library("devtools")
+#Load metadata as a tibble
+picrust_metadata <- read_delim("PICRUSt2-analysis/PICRUSt-Metadata.txt", delim = "\t", escape_double = FALSE, trim_ws = TRUE) 
 ```
 
-    ## Loading required package: usethis
-
+    ## Rows: 30 Columns: 8
+    ## ── Column specification ────────────────────────────────────────────────────────
+    ## Delimiter: "\t"
+    ## chr (5): sample-id, Sample_type, Sample_site, Sample_date, notes
+    ## dbl (3): Voyage, Tank, Sample_number
     ## 
-    ## Attaching package: 'devtools'
-
-    ## The following object is masked from 'package:permute':
-    ## 
-    ##     check
+    ## ℹ Use `spec()` to retrieve the full column specification for this data.
+    ## ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
 
 ``` r
-library("ComplexHeatmap")
-library("BiocGenerics")
-library("BiocManager")
+#Load metacyc pathway abundance as a matrix
+ballast_metacyc_abundance <- read_delim("PICRUSt2-analysis/MetaCyc_version/pathways_out/path_abun_unstrat_edited.tsv", delim = "\t")
 ```
 
-    ## Bioconductor version '3.16' is out-of-date; the current release version '3.17'
-    ##   is available with R version '4.3'; see https://bioconductor.org/install
-
+    ## Rows: 378 Columns: 31
+    ## ── Column specification ────────────────────────────────────────────────────────
+    ## Delimiter: "\t"
+    ## chr  (1): pathway
+    ## dbl (30): Ship-Ballast-100-02-01-17-SA-2-tank-6-uptake-3, Ship-Ballast-101-0...
     ## 
-    ## Attaching package: 'BiocManager'
-
-    ## The following object is masked from 'package:devtools':
-    ## 
-    ##     install
+    ## ℹ Use `spec()` to retrieve the full column specification for this data.
+    ## ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
 
 ``` r
-library("metagenomeSeq")
+#Check to see if metadata and pathway abundance samples are in the same order
+head(ballast_metacyc_abundance)
 ```
 
-    ## Loading required package: limma
-
-    ## 
-    ## Attaching package: 'limma'
-
-    ## The following object is masked from 'package:DESeq2':
-    ## 
-    ##     plotMA
-
-    ## The following object is masked from 'package:BiocGenerics':
-    ## 
-    ##     plotMA
-
-    ## Loading required package: glmnet
-
-    ## Loading required package: Matrix
-
-    ## 
-    ## Attaching package: 'Matrix'
-
-    ## The following object is masked from 'package:S4Vectors':
-    ## 
-    ##     expand
-
-    ## The following objects are masked from 'package:tidyr':
-    ## 
-    ##     expand, pack, unpack
-
-    ## Loaded glmnet 4.1-7
+    ## # A tibble: 6 × 31
+    ##   pathway   Ship-Ballast-100-02-…¹ Ship-Ballast-101-02-…² Ship-Ballast-102-02-…³
+    ##   <chr>                      <dbl>                  <dbl>                  <dbl>
+    ## 1 1CMET2-P…                  3278.                1996.                   1749. 
+    ## 2 3-HYDROX…                   193.                  67.8                    88.8
+    ## 3 AEROBACT…                     0                    2.63                    0  
+    ## 4 ALL-CHOR…                   244.                 392.                    226. 
+    ## 5 ANAEROFR…                  2706.                1473.                   1367. 
+    ## 6 ANAGLYCO…                  3422.                2091.                   1892. 
+    ## # ℹ abbreviated names: ¹​`Ship-Ballast-100-02-01-17-SA-2-tank-6-uptake-3`,
+    ## #   ²​`Ship-Ballast-101-02-01-17-SA-2-tank-2-uptake-1`,
+    ## #   ³​`Ship-Ballast-102-02-01-17-SA-2-tank-2-uptake-2`
+    ## # ℹ 27 more variables: `Ship-Ballast-103-02-01-17-SA-2-tank-2-uptake-3` <dbl>,
+    ## #   `Ship-Ballast-110-02-05-17-SA-2-Dis6-1` <dbl>,
+    ## #   `Ship-Ballast-111-02-05-17-SA-2-Dis6-2` <dbl>,
+    ## #   `Ship-Ballast-112-02-05-17-SA-2-Dis6-3` <dbl>, …
 
 ``` r
-library("Maaslin2")
-library("edgeR")
+head(picrust_metadata)
 ```
 
-    ## 
-    ## Attaching package: 'edgeR'
-
-    ## The following object is masked from 'package:metagenomeSeq':
-    ## 
-    ##     calcNormFactors
+    ## # A tibble: 6 × 8
+    ##   `sample-id`     Sample_type Voyage  Tank Sample_number Sample_site Sample_date
+    ##   <chr>           <chr>        <dbl> <dbl>         <dbl> <chr>       <chr>      
+    ## 1 Ship-Ballast-8… port_uptake      1     5            80 Antioch     17-Oct-16  
+    ## 2 Ship-Ballast-8… port_uptake      1     5            81 Antioch     17-Oct-16  
+    ## 3 Ship-Ballast-8… port_uptake      1     5            82 Antioch     17-Oct-16  
+    ## 4 Ship-Ballast-8… port_uptake      1     6            83 Antioch     17-Oct-16  
+    ## 5 Ship-Ballast-8… port_uptake      1     6            84 Antioch     17-Oct-16  
+    ## 6 Ship-Ballast-8… port_uptake      1     6            85 Antioch     17-Oct-16  
+    ## # ℹ 1 more variable: notes <chr>
 
 ``` r
-library("lefser")
-library("limma")
-library("KEGGREST")
-library("DESeq2")
-library("aplot")
-library("dplyr")
-library("ggplot2")
-library("grid")
-library("MicrobiomeStat")
+#In the picrust_metadata, make the sample-id column the rownames
+picrust_metadata <- column_to_rownames(picrust_metadata, var = "sample-id")
+
+#In the pathway abundance matrix, make the pathway column the rownames
+ballast_metacyc_abundance <- column_to_rownames(ballast_metacyc_abundance, var = "pathway")
+
+#The order of the rownames in the metadata file and the column names in the pathway abundance file don't match; they need to be in the same order before we can make this a DESeq object, because DESeq will assume that the sample order is consistent between the two
+all(rownames(picrust_metadata) == colnames(ballast_metacyc_abundance))
 ```
 
-    ## Registered S3 method overwritten by 'rmutil':
-    ##   method         from
-    ##   print.response httr
+    ## [1] FALSE
 
 ``` r
-library("readr")
+ballast_metacyc_abundance <- ballast_metacyc_abundance[, rownames(picrust_metadata)]
+all(rownames(picrust_metadata) == colnames(ballast_metacyc_abundance))
 ```
 
-    ## 
-    ## Attaching package: 'readr'
-
-    ## The following object is masked from 'package:scales':
-    ## 
-    ##     col_factor
+    ## [1] TRUE
 
 ``` r
-library("stats")
-library("tibble")
-library("tidyr")
-library("ggprism")
-library("cowplot")
+#Make Voyage & Sample_type factors
+picrust_metadata$Voyage <- factor(picrust_metadata$Voyage, 
+               levels = c("1", "2"),
+               labels = c("1", "2"))
+
+picrust_metadata$Sample_type <- factor(picrust_metadata$Sample_type, 
+               levels = c("port_uptake", "ocean_uptake", "BWT", "BWT_BWE"),
+               labels = c("Port_uptake", "Ocean_uptake", "BWT", "BWT_BWE"))
+
+#Create a DESeq object from the MetaCyc count data; using both Voyage and Sample_type in the design formula in order to get a clearer picture of the differences in function that can be attributed to the different sample types
+ballast_deseq <- DESeqDataSetFromMatrix(countData = round(ballast_metacyc_abundance),
+                              colData = picrust_metadata, 
+                              design = ~ Voyage + Sample_type)
 ```
 
-    ## 
-    ## Attaching package: 'cowplot'
-
-    ## The following object is masked from 'package:patchwork':
-    ## 
-    ##     align_plots
+    ## converting counts to integer mode
 
 ``` r
-library("ggforce")
-library("ggplotify")
-library("magrittr")
+ballast_deseq
 ```
 
-    ## 
-    ## Attaching package: 'magrittr'
-
-    ## The following object is masked from 'package:GenomicRanges':
-    ## 
-    ##     subtract
-
-    ## The following object is masked from 'package:tidyr':
-    ## 
-    ##     extract
+    ## class: DESeqDataSet 
+    ## dim: 378 30 
+    ## metadata(1): version
+    ## assays(1): counts
+    ## rownames(378): 1CMET2-PWY 3-HYDROXYPHENYLACETATE-DEGRADATION-PWY ...
+    ##   VALDEG-PWY VALSYN-PWY
+    ## rowData names(0):
+    ## colnames(30): Ship-Ballast-80-10-18-16-SA-1-UP-5-1
+    ##   Ship-Ballast-81-10-18-16-SA-1-UP-5-2 ...
+    ##   Ship-Ballast-114-02-05-17-SA-2-Dis2B-2
+    ##   Ship-Ballast-115-02-05-17-SA-2-Dis2B-3
+    ## colData names(7): Sample_type Voyage ... Sample_date notes
 
 ``` r
-library("utils")
+#Make sure that the control is the reference level so that the default log2fold changes are calculated as treatment vs. control instead of vice versa
+ballast_deseq$Sample_type <- relevel(ballast_deseq$Sample_type, ref = "Port_uptake")
+
+#May add this part in later if I find that I have technical replicates: Collapse technical replicates (i.e., multiple sequencing runs of the same library) using the collapseReplicates function?
 ```
 
-## 7.2 Load data (KO’s)
+## 7.2 Load pathway descriptions
 
-## 7.3 Load data (MetaCyc)
+Load dataframe containing pathway descriptions; this will be used to add
+descriptions to the pathways identified by DESeq2 later.
+
+``` r
+#Load pathways descriptions as a matrix
+ballast_metacyc_descriptions <- read_delim("PICRUSt2-analysis/MetaCyc_version/pathways_out/path_abun_unstrat_descrip.tsv", delim = "\t")
+```
+
+    ## Rows: 378 Columns: 32
+    ## ── Column specification ────────────────────────────────────────────────────────
+    ## Delimiter: "\t"
+    ## chr  (2): pathway, description
+    ## dbl (30): Ship-Ballast-100-02-01-17-SA-2-tank-6-uptake-3, Ship-Ballast-101-0...
+    ## 
+    ## ℹ Use `spec()` to retrieve the full column specification for this data.
+    ## ℹ Specify the column types or set `show_col_types = FALSE` to quiet this message.
+
+``` r
+#Keep just the pathway and descritpions columns in this dataframe
+ballast_metacyc_descriptions <- select(ballast_metacyc_descriptions, c(pathway, description))
+```
+
+## 7.3 Create PCA of all MetaCyc results in DESeq2
+
+``` r
+#Transforming the DESeq data using a regularized log transformation
+rld <- rlog(ballast_deseq, blind=TRUE)
+```
+
+    ## rlog() may take a few minutes with 30 or more samples,
+    ## vst() is a much faster transformation
+
+    ## -- note: fitType='parametric', but the dispersion trend was not well captured by the
+    ##    function: y = a/x + b, and a local regression fit was automatically substituted.
+    ##    specify fitType='local' or 'mean' to avoid this message next time.
+
+``` r
+#Plot the PCA (Principle Component Analysis, not to be confused with PCoA, Principle Coordinate Analysis)
+plotPCA(rld, intgroup=c("Voyage", "Sample_type"))
+```
+
+![](16S-sequence-analysis_files/figure-gfm/MetaCyc%20PCA-1.png)<!-- -->
+
+``` r
+#Customize the PCA plot using the ggplot function
+pcaData <- plotPCA(rld, intgroup=c("Voyage", "Sample_type"), returnData=TRUE)
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+ggplot(pcaData, aes(PC1, PC2, color=Sample_type, shape=Voyage)) +
+  xlab(paste0("PC1: ",percentVar[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar[2],"% variance")) + 
+  coord_fixed() +
+  geom_point(mapping = aes(colour = factor(Sample_type), shape = factor(Voyage), size = 3)) +
+  scale_colour_manual(values = c("Port_uptake" = "#E7298A", "Ocean_uptake" = "#7570B3", "BWT" = "#1B9E77", "BWT_BWE" = "#D95F02"), "Sample Type") +
+  scale_shape_manual(values = c("1" = 16, "2" = 17), name = "Voyage") +
+  guides(size=FALSE) +
+  guides(shape = guide_legend(override.aes = list(size = 3))) +
+  theme(plot.title = element_text(size = 18),
+        text = element_text(size = 18), 
+        axis.title = element_text(size = 15),
+        panel.spacing = unit(1, "lines"), 
+        panel.border = element_rect(colour = "black", fill = NA, size = 0.5), 
+        panel.background = element_blank(), 
+        legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15),
+        legend.justification = c("right", "top"))
+```
+
+![](16S-sequence-analysis_files/figure-gfm/MetaCyc%20PCA-2.png)<!-- -->
+
+## 7.4 Create PCoA of all MetaCyc results
+
+## 7.5 BWT vs port uptake
+
+``` r
+#Run DESeq
+ballast_deseq <- DESeq(ballast_deseq, test="Wald")
+```
+
+    ## estimating size factors
+
+    ## estimating dispersions
+
+    ## gene-wise dispersion estimates
+
+    ## mean-dispersion relationship
+
+    ## -- note: fitType='parametric', but the dispersion trend was not well captured by the
+    ##    function: y = a/x + b, and a local regression fit was automatically substituted.
+    ##    specify fitType='local' or 'mean' to avoid this message next time.
+
+    ## final dispersion estimates
+
+    ## fitting model and testing
+
+``` r
+#Show results
+res_ballast_deseq <- results(ballast_deseq)
+res_ballast_deseq
+```
+
+    ## log2 fold change (MLE): Sample type BWT BWE vs Port uptake 
+    ## Wald test p-value: Sample type BWT BWE vs Port uptake 
+    ## DataFrame with 378 rows and 6 columns
+    ##                                          baseMean log2FoldChange     lfcSE
+    ##                                         <numeric>      <numeric> <numeric>
+    ## 1CMET2-PWY                             4607.13014      0.0706633 0.0192123
+    ## 3-HYDROXYPHENYLACETATE-DEGRADATION-PWY  151.84829     -9.9913875 1.8507659
+    ## AEROBACTINSYN-PWY                         1.43575     -0.4873761 5.0440621
+    ## ALL-CHORISMATE-PWY                      608.89594    -25.5438177 2.3107275
+    ## ANAEROFRUCAT-PWY                       1649.02292     -1.5990363 0.5839131
+    ## ...                                           ...            ...       ...
+    ## TYRFUMCAT-PWY                          3450.10632      0.0656368 0.1326428
+    ## UBISYN-PWY                             3855.84916      0.1652058 0.0620179
+    ## UDPNAGSYN-PWY                          3612.18634      0.2046273 0.0569165
+    ## VALDEG-PWY                                6.69169     -4.8453789 4.4467187
+    ## VALSYN-PWY                             5864.68071     -0.0897082 0.0808705
+    ##                                               stat      pvalue        padj
+    ##                                          <numeric>   <numeric>   <numeric>
+    ## 1CMET2-PWY                               3.6780148 2.35056e-04 6.84484e-04
+    ## 3-HYDROXYPHENYLACETATE-DEGRADATION-PWY  -5.3985149 6.71948e-08 4.21705e-07
+    ## AEROBACTINSYN-PWY                       -0.0966237 9.23025e-01 9.54105e-01
+    ## ALL-CHORISMATE-PWY                     -11.0544483 2.08615e-28 1.51872e-26
+    ## ANAEROFRUCAT-PWY                        -2.7384836 6.17232e-03 1.28384e-02
+    ## ...                                            ...         ...         ...
+    ## TYRFUMCAT-PWY                             0.494839 0.620713886   0.7383655
+    ## UBISYN-PWY                                2.663841 0.007725418   0.0155362
+    ## UDPNAGSYN-PWY                             3.595223 0.000324114   0.0009217
+    ## VALDEG-PWY                               -1.089653 0.275866170   0.3703789
+    ## VALSYN-PWY                               -1.109283 0.267308332   0.3671707
+
+``` r
+#Check which comparisons are contained in the deseq object:
+resultsNames(ballast_deseq)
+```
+
+    ## [1] "Intercept"                              
+    ## [2] "Voyage_2_vs_1"                          
+    ## [3] "Sample_type_Ocean_uptake_vs_Port_uptake"
+    ## [4] "Sample_type_BWT_vs_Port_uptake"         
+    ## [5] "Sample_type_BWT_BWE_vs_Port_uptake"
+
+``` r
+#Just want to compare Port_uptake with BWT; creating a results table with only this information
+res_ballast_deseq_BWT <- results(ballast_deseq, contrast=c("Sample_type","BWT","Port_uptake"), alpha=0.05)
+
+#Show results summary
+summary(res_ballast_deseq_BWT)
+```
+
+    ## 
+    ## out of 378 with nonzero total read count
+    ## adjusted p-value < 0.05
+    ## LFC > 0 (up)       : 92, 24%
+    ## LFC < 0 (down)     : 160, 42%
+    ## outliers [1]       : 14, 3.7%
+    ## low counts [2]     : 15, 4%
+    ## (mean count < 1)
+    ## [1] see 'cooksCutoff' argument of ?results
+    ## [2] see 'independentFiltering' argument of ?results
+
+``` r
+#Log fold change shrinkage on the effluent_TWW_vs_CON comparison
+resLFC <- lfcShrink(ballast_deseq, coef="Sample_type_BWT_vs_Port_uptake", type="apeglm")
+```
+
+    ## using 'apeglm' for LFC shrinkage. If used in published research, please cite:
+    ##     Zhu, A., Ibrahim, J.G., Love, M.I. (2018) Heavy-tailed prior distributions for
+    ##     sequence count data: removing the noise and preserving large differences.
+    ##     Bioinformatics. https://doi.org/10.1093/bioinformatics/bty895
+
+``` r
+resLFC
+```
+
+    ## log2 fold change (MAP): Sample type BWT vs Port uptake 
+    ## Wald test p-value: Sample type BWT vs Port uptake 
+    ## DataFrame with 378 rows and 5 columns
+    ##                                          baseMean log2FoldChange     lfcSE
+    ##                                         <numeric>      <numeric> <numeric>
+    ## 1CMET2-PWY                             4607.13014      0.0990272 0.0112923
+    ## 3-HYDROXYPHENYLACETATE-DEGRADATION-PWY  151.84829     -0.7140748 0.7503179
+    ## AEROBACTINSYN-PWY                         1.43575     -0.1990689 1.0423191
+    ## ALL-CHORISMATE-PWY                      608.89594     -7.9981750 2.3141556
+    ## ANAEROFRUCAT-PWY                       1649.02292     -0.5337356 0.3379172
+    ## ...                                           ...            ...       ...
+    ## TYRFUMCAT-PWY                          3450.10632       0.593383 0.0805587
+    ## UBISYN-PWY                             3855.84916       0.264767 0.0375263
+    ## UDPNAGSYN-PWY                          3612.18634       0.145036 0.0344510
+    ## VALDEG-PWY                                6.69169      -0.488473 1.2035081
+    ## VALSYN-PWY                             5864.68071      -0.302048 0.0487033
+    ##                                             pvalue        padj
+    ##                                          <numeric>   <numeric>
+    ## 1CMET2-PWY                             2.58843e-19 2.24331e-18
+    ## 3-HYDROXYPHENYLACETATE-DEGRADATION-PWY 1.83162e-01 2.33933e-01
+    ## AEROBACTINSYN-PWY                      4.68474e-01 5.19892e-01
+    ## ALL-CHORISMATE-PWY                     1.56946e-14 1.02015e-13
+    ## ANAEROFRUCAT-PWY                       9.10885e-02 1.22801e-01
+    ## ...                                            ...         ...
+    ## TYRFUMCAT-PWY                          9.29827e-14 5.73656e-13
+    ## UBISYN-PWY                             1.73965e-12 8.79491e-12
+    ## UDPNAGSYN-PWY                          2.78790e-05 5.79883e-05
+    ## VALDEG-PWY                             4.05068e-02 5.75956e-02
+    ## VALSYN-PWY                             5.48814e-10 1.88461e-09
+
+``` r
+#"It is more useful visualize the MA-plot for the shrunken log2 fold changes, 
+#which remove the noise associated with log2 fold changes from low count genes 
+#without requiring arbitrary filtering thresholds."
+#https://www.bioconductor.org/packages/devel/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#why-un-normalized-counts
+plotMA(resLFC)
+```
+
+![](16S-sequence-analysis_files/figure-gfm/DESeq2%20MetaCyc-1.png)<!-- -->
+
+``` r
+#Convert results to dataframe
+df_ballast_deseq_BWT <- as.data.frame(res_ballast_deseq_BWT)
+
+#Filter based on adj p-value, removing non-significant values (p>0.05). This also removes p-values that are NA; NA p-values exist because when p-values do not pass the filter threshold (p-values less than 0.1) they are set to NA. More information in vignette("DESeq2") under "Note on p-values set to NA"
+df_ballast_deseq_BWT_filt <- filter(df_ballast_deseq_BWT, padj <= 0.05)
+
+#Order by adjusted p-value
+df_ballast_deseq_BWT_filt = df_ballast_deseq_BWT_filt[order(df_ballast_deseq_BWT_filt$padj, na.last=NA), ]
+
+#Add pathway descriptions to the DESeq results using the left_join function in dplyr; rownames in the DESeq output need to be a column labeled pathway in order to match that of the descriptions dataframe
+df_ballast_deseq_BWT_filt <- rownames_to_column(df_ballast_deseq_BWT_filt, var = "pathway")
+
+df_ballast_deseq_BWT_filt_descrip <- df_ballast_deseq_BWT_filt %>%
+  left_join(ballast_metacyc_descriptions, by = "pathway")
+```
+
+### 7.5.1 Create dot plot of results - log2fold change
+
+``` r
+#Plot
+log2foldplot <- ggplot(df_ballast_deseq_BWT_filt_descrip, aes(x=log2FoldChange, y=description)) +  geom_point(size=6) +
+  geom_vline(xintercept = 0, linetype="dashed", color = "black", size=1) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank()) 
+
+print(log2foldplot)
+```
+
+![](16S-sequence-analysis_files/figure-gfm/log2fold%20change-1.png)<!-- -->
 
 # 8 Session Info
 
@@ -2840,23 +3123,22 @@ devtools::session_info()
     ##  collate  English_United States.utf8
     ##  ctype    English_United States.utf8
     ##  tz       America/New_York
-    ##  date     2023-08-15
+    ##  date     2023-08-25
     ##  pandoc   2.18 @ C:/Program Files/RStudio/bin/quarto/bin/tools/ (via rmarkdown)
     ## 
     ## ─ Packages ───────────────────────────────────────────────────────────────────
     ##  ! package              * version    date (UTC) lib source
     ##    ade4                   1.7-22     2023-02-06 [1] CRAN (R 4.2.3)
-    ##    ALDEx2               * 1.30.0     2022-11-01 [1] Bioconductor
     ##    annotate               1.76.0     2022-11-03 [1] Bioconductor
     ##    AnnotationDbi          1.60.2     2023-03-10 [1] Bioconductor
     ##    ape                  * 5.7-1      2023-03-13 [1] CRAN (R 4.2.3)
-    ##    aplot                * 0.1.10     2023-03-08 [1] CRAN (R 4.2.3)
+    ##    apeglm                 1.20.0     2022-11-01 [1] Bioconductor
     ##    backports              1.4.1      2021-12-13 [1] CRAN (R 4.2.0)
     ##    base64enc              0.1-3      2015-07-28 [1] CRAN (R 4.2.0)
-    ##    biglm                  0.9-2.1    2020-11-27 [1] CRAN (R 4.2.3)
+    ##    bbmle                  1.0.25     2022-05-11 [1] CRAN (R 4.2.3)
+    ##    bdsmatrix              1.3-6      2022-06-03 [1] CRAN (R 4.2.0)
     ##    Biobase              * 2.58.0     2022-11-01 [1] Bioconductor
     ##    BiocGenerics         * 0.44.0     2022-11-01 [1] Bioconductor
-    ##    BiocManager          * 1.30.22    2023-08-08 [1] CRAN (R 4.2.3)
     ##    BiocParallel           1.32.6     2023-03-17 [1] Bioconductor
     ##    biomformat             1.26.0     2022-11-01 [1] Bioconductor
     ##    Biostrings             2.66.0     2022-11-01 [1] Bioconductor
@@ -2864,39 +3146,35 @@ devtools::session_info()
     ##    bit64                  4.0.5      2020-08-30 [1] CRAN (R 4.2.3)
     ##    bitops                 1.0-7      2021-04-24 [1] CRAN (R 4.2.0)
     ##    blob                   1.2.4      2023-03-17 [1] CRAN (R 4.2.3)
-    ##    boot                   1.3-28.1   2022-11-22 [1] CRAN (R 4.2.3)
     ##    cachem                 1.0.8      2023-05-01 [1] CRAN (R 4.2.3)
     ##    callr                  3.7.3      2022-11-02 [1] CRAN (R 4.2.3)
-    ##    caTools                1.18.2     2021-03-28 [1] CRAN (R 4.2.3)
     ##    checkmate              2.2.0      2023-04-27 [1] CRAN (R 4.2.3)
     ##    circlize               0.4.15     2022-05-10 [1] CRAN (R 4.2.3)
     ##    cli                    3.6.1      2023-03-23 [1] CRAN (R 4.2.3)
     ##    clue                   0.3-64     2023-01-31 [1] CRAN (R 4.2.3)
     ##    cluster                2.1.4      2022-08-22 [1] CRAN (R 4.2.3)
+    ##    coda                   0.19-4     2020-09-30 [1] CRAN (R 4.2.3)
     ##    codetools              0.2-19     2023-02-01 [1] CRAN (R 4.2.2)
-    ##    coin                   1.4-2      2021-10-08 [1] CRAN (R 4.2.3)
     ##    colorspace             2.1-0      2023-01-23 [1] CRAN (R 4.2.3)
     ##    ComplexHeatmap       * 2.14.0     2022-11-01 [1] Bioconductor
-    ##    cowplot              * 1.1.1      2020-12-30 [1] CRAN (R 4.2.3)
     ##    crayon                 1.5.2      2022-09-29 [1] CRAN (R 4.2.3)
     ##    crosstalk              1.2.0      2021-11-04 [1] CRAN (R 4.2.3)
     ##    data.table             1.14.8     2023-02-17 [1] CRAN (R 4.2.3)
     ##    DBI                    1.1.3      2022-06-18 [1] CRAN (R 4.2.3)
     ##    DelayedArray           0.24.0     2022-11-01 [1] Bioconductor
-    ##    DEoptimR               1.1-1      2023-08-07 [1] CRAN (R 4.2.3)
     ##    DESeq2               * 1.38.3     2023-01-19 [1] Bioconductor
-    ##    devtools             * 2.4.5      2022-10-11 [1] CRAN (R 4.2.3)
+    ##    devtools               2.4.5      2022-10-11 [1] CRAN (R 4.2.3)
     ##    digest                 0.6.31     2022-12-11 [1] CRAN (R 4.2.3)
     ##    doParallel             1.0.17     2022-02-07 [1] CRAN (R 4.2.3)
     ##    dplyr                * 1.1.2      2023-04-20 [1] CRAN (R 4.2.3)
     ##    DT                     0.28       2023-05-18 [1] CRAN (R 4.2.3)
-    ##    edgeR                * 3.40.2     2023-01-19 [1] Bioconductor
     ##    ellipsis               0.3.2      2021-04-29 [1] CRAN (R 4.2.3)
+    ##    emdbook                1.3.13     2023-07-03 [1] CRAN (R 4.2.1)
     ##    evaluate               0.21       2023-05-05 [1] CRAN (R 4.2.3)
     ##    fansi                  1.0.4      2023-01-22 [1] CRAN (R 4.2.3)
     ##    farver                 2.1.1      2022-07-06 [1] CRAN (R 4.2.3)
     ##    fastmap                1.1.1      2023-02-24 [1] CRAN (R 4.2.3)
-    ##    fBasics                4022.94    2023-03-04 [1] CRAN (R 4.2.3)
+    ##    forcats              * 1.0.0      2023-01-29 [1] CRAN (R 4.2.3)
     ##    foreach                1.5.2      2022-02-02 [1] CRAN (R 4.2.3)
     ##    foreign                0.8-84     2022-12-06 [1] CRAN (R 4.2.2)
     ##    Formula                1.2-5      2023-02-24 [1] CRAN (R 4.2.2)
@@ -2906,23 +3184,12 @@ devtools::session_info()
     ##    GenomeInfoDb         * 1.34.9     2023-02-02 [1] Bioconductor
     ##    GenomeInfoDbData       1.2.9      2023-04-07 [1] Bioconductor
     ##    GenomicRanges        * 1.50.2     2022-12-27 [1] Bioconductor
-    ##    getopt                 1.20.3     2019-03-22 [1] CRAN (R 4.2.3)
     ##    GetoptLong             1.0.5      2020-12-15 [1] CRAN (R 4.2.3)
-    ##    ggforce              * 0.4.1      2022-10-04 [1] CRAN (R 4.2.3)
-    ##    ggfun                  0.1.1      2023-06-24 [1] CRAN (R 4.2.3)
-    ##    ggpicrust2           * 1.7.1      2023-06-09 [1] CRAN (R 4.2.3)
     ##    ggplot2              * 3.4.2      2023-04-03 [1] CRAN (R 4.2.3)
-    ##    ggplotify            * 0.1.1      2023-06-27 [1] CRAN (R 4.2.3)
-    ##    ggprism              * 1.0.4      2022-11-04 [1] CRAN (R 4.2.3)
-    ##    ggrepel                0.9.3      2023-02-03 [1] CRAN (R 4.2.3)
-    ##    glmnet               * 4.1-7      2023-03-23 [1] CRAN (R 4.2.3)
     ##    GlobalOptions          0.1.2      2020-06-10 [1] CRAN (R 4.2.3)
     ##    glue                   1.6.2      2022-02-24 [1] CRAN (R 4.2.3)
-    ##    gplots                 3.1.3      2022-04-25 [1] CRAN (R 4.2.3)
     ##    gridExtra              2.3        2017-09-09 [1] CRAN (R 4.2.3)
-    ##    gridGraphics           0.5-1      2020-12-13 [1] CRAN (R 4.2.3)
-    ##    gtable                 0.3.3      2023-03-21 [1] CRAN (R 4.2.3)
-    ##    gtools                 3.9.4      2022-11-27 [1] CRAN (R 4.2.3)
+    ##    gtable                 0.3.4      2023-08-21 [1] CRAN (R 4.2.1)
     ##    highr                  0.10       2022-12-22 [1] CRAN (R 4.2.3)
     ##    Hmisc                  5.1-0      2023-05-08 [1] CRAN (R 4.2.3)
     ##    hms                    1.1.3      2023-03-21 [1] CRAN (R 4.2.3)
@@ -2930,55 +3197,39 @@ devtools::session_info()
     ##    htmltools              0.5.5      2023-03-23 [1] CRAN (R 4.2.3)
     ##    htmlwidgets            1.6.2      2023-03-17 [1] CRAN (R 4.2.3)
     ##    httpuv                 1.6.11     2023-05-11 [1] CRAN (R 4.2.3)
-    ##    httr                   1.4.6      2023-05-08 [1] CRAN (R 4.2.3)
+    ##    httr                   1.4.7      2023-08-15 [1] CRAN (R 4.2.3)
     ##    igraph                 1.4.3      2023-05-22 [1] CRAN (R 4.2.3)
     ##    IRanges              * 2.32.0     2022-11-01 [1] Bioconductor
     ##    iterators              1.0.14     2022-02-05 [1] CRAN (R 4.2.3)
     ##    jsonlite               1.8.5      2023-06-05 [1] CRAN (R 4.2.3)
     ##    kableExtra             1.3.4      2021-02-20 [1] CRAN (R 4.2.3)
-    ##    KEGGREST             * 1.38.0     2022-11-01 [1] Bioconductor
-    ##    KernSmooth             2.23-22    2023-07-10 [1] CRAN (R 4.2.3)
+    ##    KEGGREST               1.38.0     2022-11-01 [1] Bioconductor
     ##    knitr                  1.43       2023-05-25 [1] CRAN (R 4.2.3)
     ##    labeling               0.4.2      2020-10-20 [1] CRAN (R 4.2.0)
     ##    later                  1.3.1      2023-05-02 [1] CRAN (R 4.2.3)
     ##    lattice              * 0.21-8     2023-04-05 [1] CRAN (R 4.2.3)
     ##    lazyeval               0.2.2      2019-03-15 [1] CRAN (R 4.2.3)
-    ##    lefser               * 1.8.0      2022-11-01 [1] Bioconductor
-    ##    libcoin                1.0-9      2021-09-27 [1] CRAN (R 4.2.3)
     ##    lifecycle              1.0.3      2022-10-07 [1] CRAN (R 4.2.3)
-    ##    limma                * 3.54.2     2023-02-28 [1] Bioconductor
-    ##    lme4                   1.1-34     2023-07-04 [1] CRAN (R 4.2.3)
-    ##    lmerTest               3.1-3      2020-10-23 [1] CRAN (R 4.2.3)
     ##    locfit                 1.5-9.8    2023-06-11 [1] CRAN (R 4.2.3)
-    ##    lpsymphony             1.26.3     2023-01-19 [1] Bioconductor (R 4.2.2)
-    ##    Maaslin2             * 1.12.0     2022-11-01 [1] Bioconductor
-    ##    magrittr             * 2.0.3      2022-03-30 [1] CRAN (R 4.2.3)
-    ##    MASS                 * 7.3-60     2023-05-04 [1] CRAN (R 4.2.3)
-    ##    Matrix               * 1.5-4.1    2023-05-18 [1] CRAN (R 4.2.3)
+    ##    lubridate            * 1.9.2      2023-02-10 [1] CRAN (R 4.2.3)
+    ##    magrittr               2.0.3      2022-03-30 [1] CRAN (R 4.2.3)
+    ##    MASS                   7.3-60     2023-05-04 [1] CRAN (R 4.2.3)
+    ##    Matrix                 1.5-4.1    2023-05-18 [1] CRAN (R 4.2.3)
     ##    MatrixGenerics       * 1.10.0     2022-11-01 [1] Bioconductor
     ##    matrixStats          * 1.0.0      2023-06-02 [1] CRAN (R 4.2.3)
     ##    memoise                2.0.1      2021-11-26 [1] CRAN (R 4.2.3)
-    ##    metagenomeSeq        * 1.40.0     2022-11-01 [1] Bioconductor
     ##    mgcv                   1.8-42     2023-03-02 [1] CRAN (R 4.2.3)
-    ##    MicrobiomeStat       * 1.1        2022-01-24 [1] CRAN (R 4.2.3)
     ##    microViz             * 0.10.8     2023-05-01 [1] Github (david-barnett/microViz@f37d835)
     ##    mime                   0.12       2021-09-28 [1] CRAN (R 4.2.0)
     ##    miniUI                 0.1.1.1    2018-05-18 [1] CRAN (R 4.2.3)
-    ##    minqa                  1.2.5      2022-10-19 [1] CRAN (R 4.2.3)
-    ##    modeest                2.4.0      2019-11-18 [1] CRAN (R 4.2.3)
-    ##    modeltools             0.2-23     2020-03-05 [1] CRAN (R 4.2.0)
-    ##    multcomp               1.4-25     2023-06-20 [1] CRAN (R 4.2.3)
     ##    multtest               2.54.0     2022-11-01 [1] Bioconductor
     ##    munsell                0.5.0      2018-06-12 [1] CRAN (R 4.2.3)
     ##    mvtnorm                1.2-2      2023-06-08 [1] CRAN (R 4.2.3)
-    ##    NADA                 * 1.6-1.1    2020-03-22 [1] CRAN (R 4.2.3)
+    ##    NADA                   1.6-1.1    2020-03-22 [1] CRAN (R 4.2.3)
     ##    nlme                 * 3.1-162    2023-01-31 [1] CRAN (R 4.2.3)
-    ##    nloptr                 2.0.3      2022-05-26 [1] CRAN (R 4.2.3)
     ##    nnet                   7.3-19     2023-05-03 [1] CRAN (R 4.2.3)
     ##    numDeriv               2016.8-1.1 2019-06-06 [1] CRAN (R 4.2.0)
-    ##    optparse               1.7.3      2022-07-20 [1] CRAN (R 4.2.3)
     ##    patchwork            * 1.1.2.9000 2023-04-24 [1] Github (thomasp85/patchwork@c14c960)
-    ##    pcaPP                  2.0-3      2022-10-24 [1] CRAN (R 4.2.3)
     ##    permute              * 0.9-7      2022-01-27 [1] CRAN (R 4.2.3)
     ##    phyloseq             * 1.42.0     2022-11-01 [1] Bioconductor
     ##    picante              * 1.8.2      2020-06-10 [1] CRAN (R 4.2.3)
@@ -2989,83 +3240,68 @@ devtools::session_info()
     ##    plotly               * 4.10.2     2023-06-03 [1] CRAN (R 4.2.3)
     ##    plyr                 * 1.8.8      2022-11-11 [1] CRAN (R 4.2.3)
     ##    png                    0.1-8      2022-11-29 [1] CRAN (R 4.2.2)
-    ##    polyclip               1.10-4     2022-10-20 [1] CRAN (R 4.2.1)
     ##    prettyunits            1.1.1      2020-01-24 [1] CRAN (R 4.2.3)
     ##    processx               3.8.1      2023-04-18 [1] CRAN (R 4.2.1)
     ##    profvis                0.3.8      2023-05-02 [1] CRAN (R 4.2.3)
     ##    promises               1.2.0.1    2021-02-11 [1] CRAN (R 4.2.3)
     ##    ps                     1.7.5      2023-04-18 [1] CRAN (R 4.2.3)
-    ##    purrr                  1.0.1      2023-01-10 [1] CRAN (R 4.2.3)
+    ##    purrr                * 1.0.1      2023-01-10 [1] CRAN (R 4.2.3)
     ##    qiime2R              * 0.99.6     2023-04-07 [1] Github (jbisanz/qiime2R@2a3cee1)
     ##    R6                     2.5.1      2021-08-19 [1] CRAN (R 4.2.3)
     ##    RColorBrewer         * 1.1-3      2022-04-03 [1] CRAN (R 4.2.0)
     ##    Rcpp                   1.0.10     2023-01-22 [1] CRAN (R 4.2.3)
-    ##    RcppZiggurat           0.1.6      2020-10-20 [1] CRAN (R 4.2.3)
     ##    RCurl                  1.98-1.12  2023-03-27 [1] CRAN (R 4.2.3)
     ##    readr                * 2.1.4      2023-02-10 [1] CRAN (R 4.2.3)
     ##    remotes                2.4.2.1    2023-07-18 [1] CRAN (R 4.2.1)
     ##    reshape2             * 1.4.4      2020-04-09 [1] CRAN (R 4.2.3)
-    ##    Rfast                  2.0.8      2023-07-03 [1] CRAN (R 4.2.3)
     ##    rhdf5                  2.42.0     2022-11-01 [1] Bioconductor
     ##  D rhdf5filters           1.10.1     2023-03-24 [1] Bioconductor
     ##    Rhdf5lib               1.20.0     2022-11-01 [1] Bioconductor
     ##    rjson                  0.2.21     2022-01-09 [1] CRAN (R 4.2.0)
     ##    rlang                  1.1.1      2023-04-28 [1] CRAN (R 4.2.3)
-    ##    rmarkdown              2.23       2023-07-01 [1] CRAN (R 4.2.1)
-    ##    rmutil                 1.1.10     2022-10-27 [1] CRAN (R 4.2.1)
-    ##    robustbase             0.99-0     2023-06-16 [1] CRAN (R 4.2.3)
+    ##    rmarkdown              2.24       2023-08-14 [1] CRAN (R 4.2.3)
     ##    rpart                  4.1.19     2022-10-21 [1] CRAN (R 4.2.3)
     ##    RSQLite                2.3.1      2023-04-03 [1] CRAN (R 4.2.3)
     ##    rstudioapi             0.15.0     2023-07-07 [1] CRAN (R 4.2.3)
     ##    rvest                  1.0.3      2022-08-19 [1] CRAN (R 4.2.3)
     ##    S4Vectors            * 0.36.2     2023-02-26 [1] Bioconductor
-    ##    sandwich               3.0-2      2022-06-15 [1] CRAN (R 4.2.3)
     ##    scales               * 1.2.1      2022-08-20 [1] CRAN (R 4.2.3)
     ##    seecolor             * 0.2.0      2023-02-24 [1] CRAN (R 4.2.3)
     ##    sessioninfo            1.2.2      2021-12-06 [1] CRAN (R 4.2.3)
     ##    shape                  1.4.6      2021-05-19 [1] CRAN (R 4.2.0)
     ##    shiny                  1.7.4.1    2023-07-06 [1] CRAN (R 4.2.3)
-    ##    spatial                7.3-17     2023-07-20 [1] CRAN (R 4.2.3)
     ##    speedyseq            * 0.5.3.9018 2023-05-01 [1] Github (mikemc/speedyseq@ceb941f)
-    ##    stable                 1.1.6      2022-03-02 [1] CRAN (R 4.2.1)
-    ##    stabledist             0.7-1      2016-09-12 [1] CRAN (R 4.2.3)
-    ##    statip                 0.2.3      2019-11-17 [1] CRAN (R 4.2.3)
-    ##    statmod                1.5.0      2023-01-06 [1] CRAN (R 4.2.3)
     ##    stringi                1.7.12     2023-01-11 [1] CRAN (R 4.2.2)
-    ##    stringr                1.5.0      2022-12-02 [1] CRAN (R 4.2.3)
+    ##    stringr              * 1.5.0      2022-12-02 [1] CRAN (R 4.2.3)
     ##    SummarizedExperiment * 1.28.0     2022-11-01 [1] Bioconductor
-    ##    survival             * 3.5-5      2023-03-12 [1] CRAN (R 4.2.3)
+    ##    survival               3.5-5      2023-03-12 [1] CRAN (R 4.2.3)
     ##    svglite                2.1.1      2023-01-10 [1] CRAN (R 4.2.3)
     ##    systemfonts            1.0.4      2022-02-11 [1] CRAN (R 4.2.3)
-    ##    TH.data                1.1-2      2023-04-17 [1] CRAN (R 4.2.3)
     ##    tibble               * 3.2.1      2023-03-20 [1] CRAN (R 4.2.3)
     ##    tidyr                * 1.3.0      2023-01-24 [1] CRAN (R 4.2.3)
     ##    tidyselect             1.2.0      2022-10-10 [1] CRAN (R 4.2.3)
-    ##    timeDate               4022.108   2023-01-07 [1] CRAN (R 4.2.3)
-    ##    timeSeries             4030.106   2023-05-25 [1] CRAN (R 4.2.3)
-    ##    truncnorm            * 1.0-9      2023-03-20 [1] CRAN (R 4.2.3)
-    ##    tweenr                 2.0.2      2022-09-06 [1] CRAN (R 4.2.3)
+    ##    tidyverse            * 2.0.0      2023-02-22 [1] CRAN (R 4.2.3)
+    ##    timechange             0.2.0      2023-01-11 [1] CRAN (R 4.2.3)
+    ##    truncnorm              1.0-9      2023-03-20 [1] CRAN (R 4.2.3)
     ##    tzdb                   0.4.0      2023-05-12 [1] CRAN (R 4.2.3)
     ##    urlchecker             1.0.1      2021-11-30 [1] CRAN (R 4.2.3)
-    ##    usethis              * 2.2.2      2023-07-06 [1] CRAN (R 4.2.3)
+    ##    usethis                2.2.2      2023-07-06 [1] CRAN (R 4.2.3)
     ##    utf8                   1.2.3      2023-01-31 [1] CRAN (R 4.2.3)
     ##    vctrs                  0.6.2      2023-04-19 [1] CRAN (R 4.2.3)
     ##    vegan                * 2.6-4      2022-10-11 [1] CRAN (R 4.2.3)
     ##    viridis              * 0.6.3      2023-05-03 [1] CRAN (R 4.2.3)
     ##    viridisLite          * 0.4.2      2023-05-02 [1] CRAN (R 4.2.3)
+    ##    vroom                  1.6.3      2023-04-28 [1] CRAN (R 4.2.3)
     ##    webshot                0.5.5      2023-06-26 [1] CRAN (R 4.2.1)
     ##    withr                  2.5.0      2022-03-03 [1] CRAN (R 4.2.3)
-    ##    Wrench                 1.16.0     2022-11-01 [1] Bioconductor
     ##    xfun                   0.39       2023-04-20 [1] CRAN (R 4.2.3)
     ##    XML                    3.99-0.14  2023-03-19 [1] CRAN (R 4.2.3)
     ##    xml2                   1.3.4      2023-04-27 [1] CRAN (R 4.2.3)
     ##    xtable                 1.8-4      2019-04-21 [1] CRAN (R 4.2.3)
     ##    XVector                0.38.0     2022-11-01 [1] Bioconductor
     ##    yaml                   2.3.7      2023-01-23 [1] CRAN (R 4.2.3)
-    ##    yulab.utils            0.0.6      2022-12-20 [1] CRAN (R 4.2.2)
-    ##    zCompositions        * 1.4.0-1    2022-03-26 [1] CRAN (R 4.2.3)
+    ##    zCompositions          1.4.0-1    2022-03-26 [1] CRAN (R 4.2.3)
     ##    zlibbioc               1.44.0     2022-11-01 [1] Bioconductor
-    ##    zoo                    1.8-12     2023-04-13 [1] CRAN (R 4.2.3)
     ## 
     ##  [1] C:/Program Files/R/R-4.2.1/library
     ## 

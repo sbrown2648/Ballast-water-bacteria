@@ -19,7 +19,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 Here, we load the required packages and then import the .qza files exported from QIIME2 using the qiime2R package. The final object is a phyloseq object called Ballast_physeq.
 
-```{r packages, warning = FALSE, messages = FALSE}
+```{r packages, warning = FALSE, messages = FALSE, error = FALSE}
 
 library(ggplot2)
 library(vegan)
@@ -42,6 +42,8 @@ library(speedyseq)
 library(ComplexHeatmap)
 library(plotly)
 library(seecolor)
+library(tibble)
+library(tidyverse)
 
 set.seed(13745)
 
@@ -523,8 +525,21 @@ BallastSeqR_family_bar <- ggplot(BallastSeqR_family, aes(x = Sample, y = Abundan
 print(BallastSeqR_family_bar)
 
 #Make interactive plot
-ggplotly(BallastSeqR_family_bar)
+BallastSeqR_family_bar_interactive <- ggplotly(BallastSeqR_family_bar)
 
+BallastSeqR_family_bar_interactive
+
+#Save html of interactive plot on knit
+htmlwidgets::saveWidget(BallastSeqR_family_bar_interactive, "BallastSeqR_family_bar_interactive.html")
+
+htmltools::tags$iframe(
+  src=file.path(getwd(), "BallastSeqR_family_bar_interactive.html"),
+  width="100%",
+  height="600",
+  scrolling="no",
+  seamless="seamless",
+  frameBorder="0"
+)
 ```
 
 ## Family level, grouped by sample type
@@ -565,15 +580,28 @@ BallastSeqR_sample_family_bar <- ggplot(BallastSeqR_family_sample, aes(x = Sampl
 print(BallastSeqR_sample_family_bar)
 
 #Make interactive plot
-ggplotly(BallastSeqR_sample_family_bar)
+BallastSeqR_sample_family_bar_interactive <- ggplotly(BallastSeqR_sample_family_bar)
 
+BallastSeqR_sample_family_bar_interactive
+
+#Save html of interactive plot on knit
+htmlwidgets::saveWidget(BallastSeqR_sample_family_bar_interactive, "BallastSeqR_sample_family_bar_interactive.html")
+
+htmltools::tags$iframe(
+  src=file.path(getwd(), "BallastSeqR_sample_family_bar_interactive.html"),
+  width="100%",
+  height="600",
+  scrolling="no",
+  seamless="seamless",
+  frameBorder="0"
+)
 ```
 
 ## Family level, grouped by sample type and voyage
 
 Creating the same bar plot as above, but with subsets within sample type showing the different voyages, since similar sample types that were collected during different voyages cluster seperately on the NMDS and PCoA plots.
 
-```{r}
+```{r bcc sample type and voyage}
 
 #Examining BCC by sample type & voyage
 BallastSeqR_family_voyage <- Ballast_physeq %>%
@@ -615,63 +643,182 @@ BallastSeqR_voyage_family_bar <- ggplot(BallastSeqR_family_voyage, aes(x = Voyag
 print(BallastSeqR_voyage_family_bar)
 
 #Make interactive plot
-ggplotly(BallastSeqR_voyage_family_bar)
+p <- ggplotly(BallastSeqR_voyage_family_bar)
+
+p
 ```
 
-# PICRUSt2 analysis
+```{r keep interactive plot}
 
-## Load PICRUSt2 and dependent packages
+htmlwidgets::saveWidget(p, "BallastSeqR_voyage_family_bar_interactive.html")
 
-```{r picrust packages, warning=FALSE}
-
-library("ggpicrust2")
-library("phyloseq")
-library("ALDEx2")
-library("SummarizedExperiment")
-library("Biobase")
-library("devtools")
-library("ComplexHeatmap")
-library("BiocGenerics")
-library("BiocManager")
-library("metagenomeSeq")
-library("Maaslin2")
-library("edgeR")
-library("lefser")
-library("limma")
-library("KEGGREST")
-library("DESeq2")
-library("aplot")
-library("dplyr")
-library("ggplot2")
-library("grid")
-library("MicrobiomeStat")
-library("readr")
-library("stats")
-library("tibble")
-library("tidyr")
-library("ggprism")
-library("cowplot")
-library("ggforce")
-library("ggplotify")
-library("magrittr")
-library("utils")
- 
-         
+htmltools::tags$iframe(
+  src=file.path(getwd(), "BallastSeqR_voyage_family_bar_interactive.html"),
+  width="100%",
+  height="600",
+  scrolling="no",
+  seamless="seamless",
+  frameBorder="0"
+)
 ```
 
-## Load data (KO's)
+# DESeq2 analysis on MetaCyc data
 
-```{r picrust data}
+## Create the DESeq object
+
+```{r MetaCyc DESeq object}
+
+#Load metadata as a tibble
+picrust_metadata <- read_delim("PICRUSt2-analysis/PICRUSt-Metadata.txt", delim = "\t", escape_double = FALSE, trim_ws = TRUE) 
+
+#Load metacyc pathway abundance as a matrix
+ballast_metacyc_abundance <- read_delim("PICRUSt2-analysis/MetaCyc_version/pathways_out/path_abun_unstrat_edited.tsv", delim = "\t")
+
+#Check to see if metadata and pathway abundance samples are in the same order
+head(ballast_metacyc_abundance)
+
+head(picrust_metadata)
+
+#In the picrust_metadata, make the sample-id column the rownames
+picrust_metadata <- column_to_rownames(picrust_metadata, var = "sample-id")
+
+#In the pathway abundance matrix, make the pathway column the rownames
+ballast_metacyc_abundance <- column_to_rownames(ballast_metacyc_abundance, var = "pathway")
+
+#The order of the rownames in the metadata file and the column names in the pathway abundance file don't match; they need to be in the same order before we can make this a DESeq object, because DESeq will assume that the sample order is consistent between the two
+all(rownames(picrust_metadata) == colnames(ballast_metacyc_abundance))
+ballast_metacyc_abundance <- ballast_metacyc_abundance[, rownames(picrust_metadata)]
+all(rownames(picrust_metadata) == colnames(ballast_metacyc_abundance))
+
+#Make Voyage & Sample_type factors
+picrust_metadata$Voyage <- factor(picrust_metadata$Voyage, 
+               levels = c("1", "2"),
+               labels = c("1", "2"))
+
+picrust_metadata$Sample_type <- factor(picrust_metadata$Sample_type, 
+               levels = c("port_uptake", "ocean_uptake", "BWT", "BWT_BWE"),
+               labels = c("Port_uptake", "Ocean_uptake", "BWT", "BWT_BWE"))
+
+#Create a DESeq object from the MetaCyc count data; using both Voyage and Sample_type in the design formula in order to get a clearer picture of the differences in function that can be attributed to the different sample types
+ballast_deseq <- DESeqDataSetFromMatrix(countData = round(ballast_metacyc_abundance),
+                              colData = picrust_metadata, 
+                              design = ~ Voyage + Sample_type)
+ballast_deseq
 
 
+#Make sure that the control is the reference level so that the default log2fold changes are calculated as treatment vs. control instead of vice versa
+ballast_deseq$Sample_type <- relevel(ballast_deseq$Sample_type, ref = "Port_uptake")
+
+#May add this part in later if I find that I have technical replicates: Collapse technical replicates (i.e., multiple sequencing runs of the same library) using the collapseReplicates function?
 
 ```
 
-## Load data (MetaCyc)
+## Load pathway descriptions
 
-```{r picrust metacyc data}
+Load dataframe containing pathway descriptions; this will be used to add descriptions to the pathways identified by DESeq2 later.
 
+```{r load pathway descriptions}
 
+#Load pathways descriptions as a matrix
+ballast_metacyc_descriptions <- read_delim("PICRUSt2-analysis/MetaCyc_version/pathways_out/path_abun_unstrat_descrip.tsv", delim = "\t")
+
+#Keep just the pathway and descritpions columns in this dataframe
+ballast_metacyc_descriptions <- select(ballast_metacyc_descriptions, c(pathway, description))
+```
+
+## Create PCA of all MetaCyc results in DESeq2
+
+```{r MetaCyc PCA}
+
+#Transforming the DESeq data using a regularized log transformation
+rld <- rlog(ballast_deseq, blind=TRUE)
+
+#Plot the PCA (Principle Component Analysis, not to be confused with PCoA, Principle Coordinate Analysis)
+plotPCA(rld, intgroup=c("Voyage", "Sample_type"))
+
+#Customize the PCA plot using the ggplot function
+pcaData <- plotPCA(rld, intgroup=c("Voyage", "Sample_type"), returnData=TRUE)
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+ggplot(pcaData, aes(PC1, PC2, color=Sample_type, shape=Voyage)) +
+  xlab(paste0("PC1: ",percentVar[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar[2],"% variance")) + 
+  coord_fixed() +
+  geom_point(mapping = aes(colour = factor(Sample_type), shape = factor(Voyage), size = 3)) +
+  scale_colour_manual(values = c("Port_uptake" = "#E7298A", "Ocean_uptake" = "#7570B3", "BWT" = "#1B9E77", "BWT_BWE" = "#D95F02"), "Sample Type") +
+  scale_shape_manual(values = c("1" = 16, "2" = 17), name = "Voyage") +
+  guides(size=FALSE) +
+  guides(shape = guide_legend(override.aes = list(size = 3))) +
+  theme(plot.title = element_text(size = 18),
+        text = element_text(size = 18), 
+        axis.title = element_text(size = 15),
+        panel.spacing = unit(1, "lines"), 
+        panel.border = element_rect(colour = "black", fill = NA, size = 0.5), 
+        panel.background = element_blank(), 
+        legend.text = element_text(size = 15),
+        legend.title = element_text(size = 15),
+        legend.justification = c("right", "top"))
+```
+
+## Create PCoA of all MetaCyc results 
+
+## BWT vs port uptake 
+
+```{r DESeq2 MetaCyc}
+
+#Run DESeq
+ballast_deseq <- DESeq(ballast_deseq, test="Wald")
+
+#Show results
+res_ballast_deseq <- results(ballast_deseq)
+res_ballast_deseq
+
+#Check which comparisons are contained in the deseq object:
+resultsNames(ballast_deseq)
+
+#Just want to compare Port_uptake with BWT; creating a results table with only this information
+res_ballast_deseq_BWT <- results(ballast_deseq, contrast=c("Sample_type","BWT","Port_uptake"), alpha=0.05)
+
+#Show results summary
+summary(res_ballast_deseq_BWT)
+
+#Log fold change shrinkage on the effluent_TWW_vs_CON comparison
+resLFC <- lfcShrink(ballast_deseq, coef="Sample_type_BWT_vs_Port_uptake", type="apeglm")
+resLFC
+
+#"It is more useful visualize the MA-plot for the shrunken log2 fold changes, 
+#which remove the noise associated with log2 fold changes from low count genes 
+#without requiring arbitrary filtering thresholds."
+#https://www.bioconductor.org/packages/devel/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#why-un-normalized-counts
+plotMA(resLFC)
+
+#Convert results to dataframe
+df_ballast_deseq_BWT <- as.data.frame(res_ballast_deseq_BWT)
+
+#Filter based on adj p-value, removing non-significant values (p>0.05). This also removes p-values that are NA; NA p-values exist because when p-values do not pass the filter threshold (p-values less than 0.1) they are set to NA. More information in vignette("DESeq2") under "Note on p-values set to NA"
+df_ballast_deseq_BWT_filt <- filter(df_ballast_deseq_BWT, padj <= 0.05)
+
+#Order by adjusted p-value
+df_ballast_deseq_BWT_filt = df_ballast_deseq_BWT_filt[order(df_ballast_deseq_BWT_filt$padj, na.last=NA), ]
+
+#Add pathway descriptions to the DESeq results using the left_join function in dplyr; rownames in the DESeq output need to be a column labeled pathway in order to match that of the descriptions dataframe
+df_ballast_deseq_BWT_filt <- rownames_to_column(df_ballast_deseq_BWT_filt, var = "pathway")
+
+df_ballast_deseq_BWT_filt_descrip <- df_ballast_deseq_BWT_filt %>%
+  left_join(ballast_metacyc_descriptions, by = "pathway")
+
+```
+
+### Create dot plot of results - log2fold change
+
+```{r log2fold change}
+
+#Plot
+log2foldplot <- ggplot(df_ballast_deseq_BWT_filt_descrip, aes(x=log2FoldChange, y=description)) +  geom_point(size=6) +
+  geom_vline(xintercept = 0, linetype="dashed", color = "black", size=1) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank()) 
+
+print(log2foldplot)
 
 ```
 
