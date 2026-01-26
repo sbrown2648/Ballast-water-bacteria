@@ -1,0 +1,55 @@
+Sample_ID	Sample_type	Voyage	Tank	Sample_number	Sample_site	Sample_date	notes
+Ship-Ballast-80-10-18-16-SA-1-UP-5-1	port_uptake	1	5	80	Antioch	17-Oct-16	
+Ship-Ballast-81-10-18-16-SA-1-UP-5-2	port_uptake	1	5	81	Antioch	17-Oct-16	
+Ship-Ballast-82-10-18-16-SA-1-UP-5-3	port_uptake	1	5	82	Antioch	17-Oct-16	
+Ship-Ballast-83-10-17-16-SA-1-UP-6-1	port_uptake	1	6	83	Antioch	17-Oct-16	
+Ship-Ballast-84-10-17-16-SA-1-UP-6-2	port_uptake	1	6	84	Antioch	17-Oct-16	
+Ship-Ballast-85-10-17-16-SA-1-UP-6-3	port_uptake	1	6	85	Antioch	17-Oct-16	
+Ship-Ballast-86-10-20-16-EX-Dis-5-1	BWT	1	5	86	open ocean	20-Oct-16	"pre-exchange, treatment only"
+Ship-Ballast-87-10-20-16-EX-Dis-5-2	BWT	1	5	87	open ocean	20-Oct-16	"pre-exchange, treatment only"
+Ship-Ballast-88-10-20-16-EX-Dis-5-3	BWT	1	5	88	open ocean	20-Oct-16	"pre-exchange, treatment only"
+Ship-Ballast-89-10-20-16-EX-UP-5-1	ocean_uptake	1	5	89	open ocean	20-Oct-16	open ocean uptake control
+Ship-Ballast-90-10-20-16-EX-UP-5-2	ocean_uptake	1	5	90	open ocean	20-Oct-16	open ocean uptake control
+Ship-Ballast-91-10-20-16-EX-UP-5-3	ocean_uptake	1	5	91	open ocean	20-Oct-16	open ocean uptake control
+Ship-Ballast-92-10-23-16-SA-1-Dis-6-1	BWT	1	6	92	Port McNeill	23-Oct-16	treatment only
+Ship-Ballast-93-10-23-16-SA-1-Dis-6-2	BWT	1	6	93	Port McNeill	23-Oct-16	treatment only
+Ship-Ballast-94-10-23-16-SA-1-Dis-6-3	BWT	1	6	94	Port McNeill	23-Oct-16	treatment only
+Ship-Ballast-95-10-23-16-SA-1-Dis-5-1	BWT_BWE	1	5	95	Port McNeill	23-Oct-16	treatment + exchange
+Ship-Ballast-96-10-23-16-SA-1-Dis-5-2	BWT_BWE	1	5	96	Port McNeill	23-Oct-16	treatment + exchange
+Ship-Ballast-97-10-23-16-SA-1-Dis-5-3	BWT_BWE	1	5	97	Port McNeill	23-Oct-16	treatment + exchange
+Ship-Ballast-98-02-01-17-SA-2-tank-6-uptake-1	port_uptake	2	6	98	Antioch	1-Feb-17	
+Ship-Ballast-99-02-01-17-SA-2-tank-6-uptake-2	port_uptake	2	6	98	Antioch	1-Feb-17	
+Ship-Ballast-100-02-01-17-SA-2-tank-6-uptake-3	port_uptake	2	6	100	Antioch	1-Feb-17	
+Ship-Ballast-101-02-01-17-SA-2-tank-2-uptake-1	port_uptake	2	2	101	Antioch	1-Feb-17	
+Ship-Ballast-102-02-01-17-SA-2-tank-2-uptake-2	port_uptake	2	2	102	Antioch	1-Feb-17	
+Ship-Ballast-103-02-01-17-SA-2-tank-2-uptake-3	port_uptake	2	2	103	Antioch	1-Feb-17	
+Ship-Ballast-104-02-05-17-SA-2-Dis2-1	BWT_BWE	2	2	104	Port McNeill	7-Feb-17	treatment + exchange
+Ship-Ballast-105-02-05-17-SA-2-Dis2-2	BWT_BWE	2	2	105	Port McNeill	7-Feb-17	treatment + exchange
+Ship-Ballast-106-02-05-17-SA-2-Dis2-3	BWT_BWE	2	2	106	Port McNeill	7-Feb-17	treatment + exchange
+Ship-Ballast-107-02-05-17-SA-2-Dis2B-1	BWT_BWE	2	2	107	Port McNeill	7-Feb-17	treatment + exchange
+Ship-Ballast-108-02-05-17-SA-2-Dis2B-2	BWT_BWE	2	2	108	Port McNeill	7-Feb-17	treatment + exchange
+Ship-Ballast-109-02-05-17-SA-2-Dis2B-3	BWT_BWE	2	2	109	Port McNeill	7-Feb-17	treatment + exchange
+Ship-Ballast-110-02-05-17-SA-2-Dis6-1	BWT	2	6	110	Port McNeill	7-Feb-17	treatment only
+Ship-Ballast-111-02-05-17-SA-2-Dis6-2	BWT	2	6	111	Port McNeill	7-Feb-17	treatment only
+Ship-Ballast-112-02-05-17-SA-2-Dis6-3	BWT	2	6	112	Port McNeill	7-Feb-17	treatment only
+Ship-Ballast-113-02-05-17-SA-2-Dis2B-1	BWT	2	6	113	Port McNeill	7-Feb-17	treatment only
+Ship-Ballast-114-02-05-17-SA-2-Dis2B-2	BWT	2	6	114	Port McNeill	7-Feb-17	treatment only
+Ship-Ballast-115-02-05-17-SA-2-Dis2B-3	BWT	2	6	115	Port McNeill	7-Feb-17	treatment only
+Control-MM1-Mock-Microbiome	control						
+Control-MM2-Mock-Microbiome	control						
+Control-MM3-Mock-Microbiome	control						
+Control-MM4-Mock-Microbiome-EMP	control						
+Control-MM5-Mock-Microbiome-EMP	control						
+Control-MM6-Mock-Microbiome-EMP	control						
+Control-MM7-Mock-Microbiome	control						
+Control-MM8-Mock-Microbiome	control						
+Control-MM9-Mock-Microbiome-EMP	control						
+Control-NPCR1-Negative-PCR	negative						
+Control-NPCR2-Negative-PCR	negative						
+Control-NPCR3-Negative-PCR	negative						
+Control-NPCR4-Negative-PCR-EMP	negative						
+Control-NPCR5-Negative-PCR-EMP	negative						
+Control-NPCR6-Negative-PCR-EMP	negative						
+Control-NPCR7-Negative-PCR	negative						
+Control-NPCR8-Negative-PCR	negative						
+Control-NPCR9-Negative-PCR-EMP	negative						
