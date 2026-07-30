@@ -2,3 +2,11 @@
 .Rhistory
 .RData
 .Ruserdata
+
+# renv
+renv/library/
+renv/staging/
+renv/sandbox/
+
+# Large PICRUSt2 intermediate file (exceeds GitHub's 100 MB limit)
+PICRUSt2-analysis/KO_version/pred_metagenome_contrib.tsv

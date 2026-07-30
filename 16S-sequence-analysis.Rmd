@@ -13,6 +13,9 @@ always_allow_html: true
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+
+# renv is used to manage package versions for reproducibility.
+# Run renv::restore() to install the exact package versions used in this analysis.
 ```
 
 # Load Packages and Import Data
@@ -45,9 +48,46 @@ library(tibble)
 library(tidyverse)
 library(ggh4x)
 library(kableExtra)
-library(patchwork)
+library(colorspace)
 
 set.seed(13745)
+
+# Reusable color palette for sample types
+sample_type_colors <- c(
+  "Port uptake" = "#E7298A",
+  "Ocean uptake" = "#7570B3",
+  "BWT" = "#1B9E77",
+  "BWT+BWE" = "#D95F02"
+)
+
+# Reusable theme for clean plots
+theme_ballast <- function() {
+  theme(
+    panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5),
+    panel.background = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.grid.major = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 10, colour = "black"),
+    axis.text.y = element_text(size = 10, colour = "black"),
+    axis.title.x = element_text(size = 12),
+    axis.title.y = element_text(size = 12),
+    axis.ticks.x = element_line(colour = "#000000", linewidth = 0.1),
+    axis.ticks.y = element_line(colour = "#000000", linewidth = 0.1),
+    strip.text = element_text(size = 12),
+    legend.text = element_text(size = 10),
+    legend.title = element_text(size = 12)
+  )
+}
+
+# Voyage shape mapping
+voyage_shapes <- c("Voyage 1" = 16, "Voyage 2" = 17)
+
+# Samples to exclude (low read counts)
+samples_to_exclude <- c("104", "105", "106", "107", "108", "109")
+
+# Factor levels and labels for sample types
+sample_type_levels <- c("port_uptake", "BWT", "ocean_uptake", "BWT_BWE")
+sample_type_labels <- c("Port uptake", "BWT", "Ocean uptake", "BWT+BWE")
 
 #Create a phyloseq object from the .qza files exported from qiime2 using 
 #the qiime2R package
@@ -81,6 +121,46 @@ Ballast_physeq <- subset_taxa(Ballast_physeq, Family != "Mitochondria")
 
 #Check that contaminant sequences are removed (easiest to save as data frame and search)
 taxtabl <- as.data.frame(tax_table(Ballast_physeq))
+```
+
+## Examine the control samples
+
+Before removing the blanks and controls, we examine how many reads they contain, the identity (taxonomy) of the ASVs detected in the negative controls (`Sample_type == "negative"`), and whether any of those ASVs also occur in the true samples. ASVs that appear in both the negative controls and the samples are potential contaminants.
+
+```{r controls}
+
+#Examine the number of reads in the control samples before removing them
+control_reads <- sort(sample_sums(subset_samples(Ballast_physeq, Sample_type %in% c("control", "negative"))))
+knitr::kable(control_reads, col.names = "Number of reads") %>%
+    kableExtra::kable_styling("striped", latex_options = "scale_down") %>%
+    kableExtra::scroll_box(width = "100%")
+
+#Identify the ASVs found in the negative controls
+#Subset to the negative controls and keep only ASVs that actually occur in them
+neg_controls <- subset_samples(Ballast_physeq, Sample_type == "negative")
+neg_controls <- prune_taxa(taxa_sums(neg_controls) > 0, neg_controls)
+
+#Reads for each ASV summed across the true (non-control) samples
+true_samples <- subset_samples(Ballast_physeq, !(Sample_type %in% c("control", "negative")))
+sample_taxa_sums <- taxa_sums(true_samples)
+
+#Build a table of the negative-control ASV identities, their read counts in the
+#negative controls, and whether/how much they also occur in the true samples
+neg_control_taxa <- as.data.frame(tax_table(neg_controls))
+neg_control_taxa$Reads_in_negatives <- as.integer(taxa_sums(neg_controls))
+neg_control_taxa$Reads_in_samples <- as.integer(sample_taxa_sums[rownames(neg_control_taxa)])
+neg_control_taxa$Present_in_samples <- neg_control_taxa$Reads_in_samples > 0
+
+#Order by abundance in the negative controls
+neg_control_taxa <- neg_control_taxa[order(-neg_control_taxa$Reads_in_negatives), ]
+
+knitr::kable(neg_control_taxa, row.names = FALSE) %>%
+    kableExtra::kable_styling("striped", latex_options = "scale_down") %>%
+    kableExtra::scroll_box(width = "100%")
+
+#How many of the negative-control ASVs were also detected in the samples?
+cat(sprintf("%d of %d ASVs detected in the negative controls were also present in the samples.\n",
+            sum(neg_control_taxa$Present_in_samples), nrow(neg_control_taxa)))
 
 #At this point, blanks and positive controls should also be removed
 Ballast_physeq = subset_samples(Ballast_physeq, Sample_type != "control")
@@ -126,7 +206,7 @@ ASV_occurance <- ggplot(data = readsumsdf_ASVs) +
     theme(text = element_text(size = 18), 
         axis.title = element_text(size = 15),
         panel.spacing = unit(1, "lines"), 
-        panel.border = element_rect(colour = "black", fill = NA, size = 0.5), 
+        panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5), 
         panel.background = element_blank())
 
 print(ASV_occurance)
@@ -177,22 +257,40 @@ Removing these samples with low sequencing depths is important because samples w
 ```{r filter}
 
 #Remove samples with few reads
-Ballast_physeq = subset_samples(Ballast_physeq, 
-                            Sample_number != "104")
-Ballast_physeq = subset_samples(Ballast_physeq, 
-                            Sample_number != "105")
-Ballast_physeq = subset_samples(Ballast_physeq, 
-                            Sample_number != "107")
-Ballast_physeq = subset_samples(Ballast_physeq, 
-                            Sample_number != "108")
-Ballast_physeq = subset_samples(Ballast_physeq, 
-                            Sample_number != "109")
-Ballast_physeq = subset_samples(Ballast_physeq, 
-                            Sample_number != "106")
+Ballast_physeq <- subset_samples(Ballast_physeq,
+                                 !(Sample_number %in% samples_to_exclude))
 
 #Filter out low abundance ASVs
 Ballast_physeq = prune_taxa(taxa_sums(Ballast_physeq) > 2, Ballast_physeq)
 
+```
+
+## Re-check negative-control ASVs after filtering
+
+Now that the low-read samples and low-abundance ASVs have been removed, we check whether the ASVs that were detected in the negative controls are still present in the retained samples. ASVs that dropped out here were only supported by the samples/reads that were filtered out.
+
+```{r neg control after filter}
+
+#taxa_sums over the filtered object; ASVs that were pruned out are treated as 0 reads
+filtered_taxa_sums <- taxa_sums(Ballast_physeq)
+
+#Add post-filtering read counts to the negative-control ASV table built earlier
+neg_control_after_filter <- neg_control_taxa
+neg_control_after_filter$Reads_after_filtering <-
+  as.integer(filtered_taxa_sums[rownames(neg_control_after_filter)])
+neg_control_after_filter$Reads_after_filtering[is.na(neg_control_after_filter$Reads_after_filtering)] <- 0L
+neg_control_after_filter$Present_after_filtering <- neg_control_after_filter$Reads_after_filtering > 0
+
+knitr::kable(neg_control_after_filter, row.names = FALSE) %>%
+    kableExtra::kable_styling("striped", latex_options = "scale_down") %>%
+    kableExtra::scroll_box(width = "100%")
+
+#Of the negative-control ASVs that overlapped with the samples, how many remain?
+n_overlap <- sum(neg_control_after_filter$Present_in_samples)
+n_overlap_retained <- sum(neg_control_after_filter$Present_in_samples &
+                          neg_control_after_filter$Present_after_filtering)
+cat(sprintf("Of the %d negative-control ASVs that were present in the samples, %d were still present after low-read samples and low-abundance ASVs were removed.\n",
+            n_overlap, n_overlap_retained))
 ```
 
 ## Label and order variables
@@ -202,17 +300,23 @@ Now we can relabel the variables; if you type in Ballast_physeq you will see tha
 ```{r label}
 
 #Order factors
-sample_data(Ballast_physeq)$Sample_type <- factor(sample_data(Ballast_physeq)$Sample_type, 
-               levels = c("port_uptake", "BWT", "ocean_uptake", "BWT_BWE"),
-               labels = c("Port uptake", "BWT", "Ocean uptake", "BWT+BWE"))
+sample_data(Ballast_physeq)$Sample_type <- factor(
+  sample_data(Ballast_physeq)$Sample_type,
+  levels = sample_type_levels,
+  labels = sample_type_labels)
 
-sample_data(Ballast_physeq)$Sample_number <- factor(sample_data(Ballast_physeq)$Sample_number, 
-               levels = c("80", "81", "82", "83", "84", "85", "86", "87", "88", "89", "90", "91", "92", "93", "94", "95", "96", "97", "98", "100", "101", "102", "103", "110", "111", "112", "113", "114", "115"),
-               labels = c("80", "81", "82", "83", "84", "85", "86", "87", "88", "89", "90", "91", "92", "93", "94", "95", "96", "97", "98", "100", "101", "102", "103", "110", "111", "112", "113", "114", "115"))
+sample_numbers <- c("80", "81", "82", "83", "84", "85", "86", "87", "88",
+                    "89", "90", "91", "92", "93", "94", "95", "96", "97",
+                    "98", "100", "101", "102", "103", "110", "111", "112",
+                    "113", "114", "115")
+sample_data(Ballast_physeq)$Sample_number <- factor(
+  sample_data(Ballast_physeq)$Sample_number,
+  levels = sample_numbers)
 
-sample_data(Ballast_physeq)$Voyage <- factor(sample_data(Ballast_physeq)$Voyage, 
-               levels = c("1", "2"),
-               labels = c("Voyage 1", "Voyage 2"))
+sample_data(Ballast_physeq)$Voyage <- factor(
+  sample_data(Ballast_physeq)$Voyage,
+  levels = c("1", "2"),
+  labels = c("Voyage 1", "Voyage 2"))
 ```
 
 ## Group rarefaction curves by Sample_type
@@ -225,17 +329,17 @@ Note: I load the phyloseq-extended package here instead of above in the 'Load pa
 
 library(phyloseq.extended)
 
-p <- ggrare(Ballast_physeq, step = 1000, color = "Sample_type", label = "Sample_number", se = FALSE) 
+p <- phyloseq.extended:::ggrare(Ballast_physeq, step = 1000, color = "Sample_type", label = "Sample_number", se = FALSE)
  
   
 p <- p + facet_wrap(~Sample_type, scale="free") +
-  scale_colour_manual(values = c("Port uptake" = "#E7298A", "Ocean uptake" = "#7570B3", "BWT" = "#1B9E77", "BWT+BWE" = "#D95F02"), "Sample Type") +
+  scale_colour_manual(values = sample_type_colors, "Sample Type") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(),
         legend.position = "none") +
-  labs(x ="Number of Reads")
+  labs(x = "Number of Reads")
 
 
 print(p)
@@ -323,14 +427,11 @@ knitr::kable(head(alphadiv)) %>%
 #Plot
 ggplot(data=alphadiv, aes(x=Sample_type, y=Shannon), alpha=0.1) + 
   geom_boxplot(aes(fill=Sample_type)) +
-  scale_fill_manual(values = c("Port uptake" = "#E7298A", 
-                                 "BWT" = "#1B9E77", 
-                                 "Ocean uptake" = "#7570B3",
-                                 "BWT+BWE" = "#D95F02"), "Sample Type") +
+  scale_fill_manual(values = sample_type_colors, "Sample Type") +
   geom_point(position=position_dodge(width=0.75),aes(group=Sample_type)) +
   scale_y_continuous(limits = c(0, 4.5)) +
   theme(legend.position="right",
-        panel.border = element_rect(colour = "black", fill = NA, size = 0.5), 
+        panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5), 
         panel.background = element_blank(), 
         axis.title.x = element_blank())
 ```
@@ -342,14 +443,11 @@ ggplot(data=alphadiv, aes(x=Sample_type, y=Shannon), alpha=0.1) +
 #Plot
 ggplot(data=alphadiv, aes(x=Voyage, y=Shannon), alpha=0.1) + 
   geom_boxplot(aes(fill=Sample_type)) +
-  scale_fill_manual(values = c("Port uptake" = "#E7298A", 
-                                 "Ocean uptake" = "#7570B3", 
-                                 "BWT" = "#1B9E77", 
-                                 "BWT+BWE" = "#D95F02"), "Sample Type") +
+  scale_fill_manual(values = sample_type_colors, "Sample Type") +
   geom_point(position=position_dodge(width=0.75),aes(group=Sample_type)) +
   facet_wrap(~Sample_type, scale="free") +
   theme(legend.position="right",
-        panel.border = element_rect(colour = "black", fill = NA, size = 0.5), 
+        panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5), 
         panel.background = element_blank(),
         axis.title.x = element_blank())
 ```
@@ -361,15 +459,12 @@ ggplot(data=alphadiv, aes(x=Voyage, y=Shannon), alpha=0.1) +
 #Plot
 ggplot(data=alphadiv, aes(x=Sample_type, y=Shannon), alpha=0.1) + 
   geom_boxplot(aes(fill=Sample_type)) +
-  scale_fill_manual(values = c("Port uptake" = "#E7298A", 
-                                 "Ocean uptake" = "#7570B3", 
-                                 "BWT" = "#1B9E77", 
-                                 "BWT+BWE" = "#D95F02"), "Sample Type") +
+  scale_fill_manual(values = sample_type_colors, "Sample Type") +
   geom_point(position=position_dodge(width=0.75),aes(group=Voyage)) +
   facet_wrap(~Voyage, scale="free") +
   scale_y_continuous(limits = c(0, 4.5)) +
   theme(legend.position="right",
-        panel.border = element_rect(colour = "black", fill = NA, size = 0.5), 
+        panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5), 
         panel.background = element_blank(),
         axis.title.x = element_blank(),
         axis.text.x = element_text(angle = 30, vjust = 1, hjust = 1))
@@ -382,14 +477,11 @@ ggplot(data=alphadiv, aes(x=Sample_type, y=Shannon), alpha=0.1) +
 #Plot
 ggplot(data=alphadiv, aes(x=Sample_type, y=Observed), alpha=0.1) + 
   geom_boxplot(aes(fill=Sample_type)) +
-  scale_fill_manual(values = c("Port uptake" = "#E7298A", 
-                                 "BWT" = "#1B9E77", 
-                                 "Ocean uptake" = "#7570B3",
-                                 "BWT+BWE" = "#D95F02"), "Sample Type") +
+  scale_fill_manual(values = sample_type_colors, "Sample Type") +
   geom_point(position=position_dodge(width=0.75),aes(group=Sample_type)) +
   scale_y_continuous(limits = c(0, 100)) +
   theme(legend.position="right",
-        panel.border = element_rect(colour = "black", fill = NA, size = 0.5), 
+        panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5), 
         panel.background = element_blank(), 
         axis.title.x = element_blank())
 ```
@@ -401,15 +493,12 @@ ggplot(data=alphadiv, aes(x=Sample_type, y=Observed), alpha=0.1) +
 #Plot
 ggplot(data=alphadiv, aes(x=Sample_type, y=Observed), alpha=0.1) + 
   geom_boxplot(aes(fill=Sample_type)) +
-  scale_fill_manual(values = c("Port uptake" = "#E7298A", 
-                                 "Ocean uptake" = "#7570B3", 
-                                 "BWT" = "#1B9E77", 
-                                 "BWT+BWE" = "#D95F02"), "Sample Type") +
+  scale_fill_manual(values = sample_type_colors, "Sample Type") +
   geom_point(position=position_dodge(width=0.75),aes(group=Voyage)) +
   facet_wrap(~Voyage, scale="free") +
   scale_y_continuous(limits = c(0, 100)) +
   theme(legend.position="right",
-        panel.border = element_rect(colour = "black", fill = NA, size = 0.5), 
+        panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5), 
         panel.background = element_blank(),
         axis.title.x = element_blank(),
         axis.text.x = element_text(angle = 30, vjust = 1, hjust = 1))
@@ -446,15 +535,12 @@ reads_box <- ggplot(data=reads_df, aes(x=Sample_type, y=sample_sums.Ballast_phys
        alpha=0.1) + 
   labs(y = "Reads") +
   geom_boxplot(aes(fill=Sample_type)) +
-  scale_fill_manual(values = c("Port uptake" = "#E7298A", 
-                                 "Ocean uptake" = "#7570B3", 
-                                 "BWT" = "#1B9E77", 
-                                 "BWT+BWE" = "#D95F02"), "Sample Type") +
+  scale_fill_manual(values = sample_type_colors, "Sample Type") +
   geom_point(position=position_dodge(width=0.75),aes(group=Voyage)) +
   facet_wrap(~Voyage, scale="free") +
   #scale_y_continuous(limits = c(0, 100)) +
   theme(legend.position="right",
-        panel.border = element_rect(colour = "black", fill = NA, size = 0.5), 
+        panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5), 
         panel.background = element_blank(),
         axis.title.x = element_blank(),
         axis.text.x = element_text(angle = 30, vjust = 1, hjust = 1))
@@ -467,15 +553,12 @@ reads_box <- ggplot(data=reads_df, aes(x=Sample_type, y=sample_sums.Ballast_phys
 #Observed without x-axis labels
 richness_box <- ggplot(data=alphadiv, aes(x=Sample_type, y=Observed), alpha=0.1) + 
   geom_boxplot(aes(fill=Sample_type)) +
-  scale_fill_manual(values = c("Port uptake" = "#E7298A", 
-                                 "Ocean uptake" = "#7570B3", 
-                                 "BWT" = "#1B9E77", 
-                                 "BWT+BWE" = "#D95F02"), "Sample Type") +
+  scale_fill_manual(values = sample_type_colors, "Sample Type") +
   geom_point(position=position_dodge(width=0.75),aes(group=Voyage)) +
   facet_wrap(~Voyage, scale="free") +
   scale_y_continuous(limits = c(0, 100)) +
   theme(legend.position="right",
-        panel.border = element_rect(colour = "black", fill = NA, size = 0.5), 
+        panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5), 
         panel.background = element_blank(),
         axis.title.x = element_blank(),
         axis.text.x = element_blank(),
@@ -484,15 +567,12 @@ richness_box <- ggplot(data=alphadiv, aes(x=Sample_type, y=Observed), alpha=0.1)
 #Shannon without x-axis labels
 shannon_box <- ggplot(data=alphadiv, aes(x=Sample_type, y=Shannon), alpha=0.1) + 
   geom_boxplot(aes(fill=Sample_type)) +
-  scale_fill_manual(values = c("Port uptake" = "#E7298A", 
-                                 "Ocean uptake" = "#7570B3", 
-                                 "BWT" = "#1B9E77", 
-                                 "BWT+BWE" = "#D95F02"), "Sample Type") +
+  scale_fill_manual(values = sample_type_colors, "Sample Type") +
   geom_point(position=position_dodge(width=0.75),aes(group=Voyage)) +
   facet_wrap(~Voyage, scale="free") +
   scale_y_continuous(limits = c(0, 4.5)) +
   theme(legend.position="right",
-        panel.border = element_rect(colour = "black", fill = NA, size = 0.5), 
+        panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5), 
         panel.background = element_blank(),
         axis.title.x = element_blank(),
         axis.text.x = element_blank(),
@@ -681,16 +761,16 @@ all.nmds.source.ord <- ordinate(
 all.nmds.sample.type <- plot_ordination(
   physeq = Ballast_physeqRA,
   ordination = all.nmds.source.ord) + 
-  scale_colour_manual(values = c("Port uptake" = "#E7298A", "Ocean uptake" = "#7570B3", "BWT" = "#1B9E77", "BWT+BWE" = "#D95F02"), "Sample Type") +
-  scale_shape_manual(values = c("Voyage 1" = 16, "Voyage 2" = 17), name = "Voyage") +
+  scale_colour_manual(values = sample_type_colors, "Sample Type") +
+  scale_shape_manual(values = voyage_shapes, name = "Voyage") +
   geom_point(mapping = aes(colour = factor(Sample_type), shape = factor(Voyage), size = 5)) +
-  guides(size=FALSE) +
+  guides(size = "none") +
   guides(shape = guide_legend(override.aes = list(size = 3))) +
   theme(plot.title = element_text(size = 18),
         text = element_text(size = 18), 
         axis.title = element_text(size = 15),
         panel.spacing = unit(1, "lines"), 
-        panel.border = element_rect(colour = "black", fill = NA, size = 0.5), 
+        panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5), 
         panel.background = element_blank(), 
         legend.text = element_text(size = 15),
         legend.title = element_text(size = 15),
@@ -716,17 +796,17 @@ all.pcoa.source.ord <- ordinate(
 all.pcoa.sample.type <- plot_ordination(
   physeq = Ballast_physeqRA,
   ordination = all.pcoa.source.ord) + 
-  scale_colour_manual(values = c("Port uptake" = "#E7298A", "Ocean uptake" = "#7570B3", "BWT" = "#1B9E77", "BWT+BWE" = "#D95F02"), "Sample Type") +
-  scale_shape_manual(values = c("Voyage 1" = 16, "Voyage 2" = 17), name = "Voyage") +
+  scale_colour_manual(values = sample_type_colors, "Sample Type") +
+  scale_shape_manual(values = voyage_shapes, name = "Voyage") +
   geom_point(mapping = aes(colour = factor(Sample_type), shape = factor(Voyage), size = 5)) +
   geom_text(aes(label = Sample_number, colour = factor(Sample_type)), nudge_x=0.05, nudge_y=0.05, check_overlap = TRUE) +
-  guides(size=FALSE) +
+  guides(size = "none") +
   guides(shape = guide_legend(override.aes = list(size = 3))) +
   theme(plot.title = element_text(size = 18),
         text = element_text(size = 18), 
         axis.title = element_text(size = 15),
         panel.spacing = unit(1, "lines"), 
-        panel.border = element_rect(colour = "black", fill = NA, size = 0.5), 
+        panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5), 
         panel.background = element_blank(), 
         legend.text = element_text(size = 15),
         legend.title = element_text(size = 15),
@@ -766,16 +846,16 @@ all.pcoa.source.ord <- ordinate(
 all.pcoa.sample.type.no.label <- plot_ordination(
   physeq = Ballast_physeqRA,
   ordination = all.pcoa.source.ord) + 
-  scale_colour_manual(values = c("Port uptake" = "#E7298A", "Ocean uptake" = "#7570B3", "BWT" = "#1B9E77", "BWT+BWE" = "#D95F02"), "Sample Type") +
-  scale_shape_manual(values = c("Voyage 1" = 16, "Voyage 2" = 17), name = "Voyage") +
+  scale_colour_manual(values = sample_type_colors, "Sample Type") +
+  scale_shape_manual(values = voyage_shapes, name = "Voyage") +
   geom_point(mapping = aes(colour = factor(Sample_type), shape = factor(Voyage), size = 5)) +
-  guides(size=FALSE) +
+  guides(size = "none") +
   guides(shape = guide_legend(override.aes = list(size = 3))) +
   theme(plot.title = element_text(size = 18),
         text = element_text(size = 18), 
         axis.title = element_text(size = 15),
         panel.spacing = unit(1, "lines"), 
-        panel.border = element_rect(colour = "black", fill = NA, size = 0.5), 
+        panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5), 
         panel.background = element_blank(), 
         legend.text = element_text(size = 15),
         legend.title = element_text(size = 15),
@@ -869,340 +949,148 @@ I've included here a list of hex codes for colors that can be used to identify t
 
 ```{r bcc hex, messages = FALSE}
 
-bcc_hex <- print_color(c("black", "#440154FF", "#450659FF","#460B5EFF","#472D7AFF","#3B518BFF", "#3A548CFF", "#38598CFF", "#365C8DFF", "#34608DFF", "#33638DFF", "#31678EFF", "#306A8EFF","#2E6E8EFF", "#2D718EFF", "#2B748EFF","#2A778EFF", "#297B8EFF","#1F958BFF", "#1F988BFF", "#1E9C89FF", "#1F9F88FF","#1FA287FF", "#21A585FF", "#23A983FF","#25AC82FF", "#29AF7FFF", "#2DB27DFF","#32B67AFF", "#37B878FF", "#3CBC74FF","#57C766FF", "#5EC962FF","#A2DA37FF","#DAE319FF", "#E4E419FF",  "#ECE51BFF", "#F5E61FFF","darkorchid1", "darkorchid2", "darkorchid3","#A21C9AFF", "#A62098FF", "#AB2394FF", "#AE2892FF", "#B22B8FFF", "#B6308BFF", "#BA3388FF", "#BE3885FF", "#C13B82FF", "#C53F7EFF","#C8437BFF", "#CC4678FF", "#CE4B75FF", "#D14E72FF", "#D5536FFF", "#D7566CFF", "#DA5B69FF", "#DD5E66FF", "#E06363FF","#FF6699","#F68D45FF", "#FCA537FF","#F6E726FF", "#F4ED27FF", "#00489C", "#CCCCCC", "#999999", "#A1C299","#300018"), type = "r")
+bcc_hex <- c("black", "#440154FF", "#450659FF","#460B5EFF","#472D7AFF","#3B518BFF", "#3A548CFF", "#38598CFF", "#365C8DFF", "#34608DFF", "#33638DFF", "#31678EFF", "#306A8EFF","#2E6E8EFF", "#2D718EFF", "#2B748EFF","#2A778EFF", "#297B8EFF","#1F958BFF", "#1F988BFF", "#1E9C89FF", "#1F9F88FF","#1FA287FF", "#21A585FF", "#23A983FF","#25AC82FF", "#29AF7FFF", "#2DB27DFF","#32B67AFF", "#37B878FF", "#3CBC74FF","#57C766FF", "#5EC962FF","#A2DA37FF","#DAE319FF", "#E4E419FF",  "#ECE51BFF", "#F5E61FFF","darkorchid1", "darkorchid2", "darkorchid3","#A21C9AFF", "#A62098FF", "#AB2394FF", "#AE2892FF", "#B22B8FFF", "#B6308BFF", "#BA3388FF", "#BE3885FF", "#C13B82FF", "#C53F7EFF","#C8437BFF", "#CC4678FF", "#CE4B75FF", "#D14E72FF", "#D5536FFF", "#D7566CFF", "#DA5B69FF", "#DD5E66FF", "#E06363FF","#FF6699","#F68D45FF", "#FCA537FF","#F6E726FF", "#F4ED27FF", "#00489C", "#CCCCCC", "#999999", "#A1C299","#300018")
 
-print(bcc_hex)
+print_color(bcc_hex, type = "r")
 ```
 
 ## Family level, individual samples
 
-```{r bcc sample id}
+```{r bcc family sample id}
 
-#Examining BCC in each individual sample first
-#BallastSeqR_family <- Ballast_physeq %>%
-#  tax_glom(taxrank = "Family") %>%                    #Agglomerate at family level
-#  transform_sample_counts(function(x) {x/sum(x)}) %>% #Transform to rel. abundance
-#  psmelt() %>%                                        # Melt to long format
-#  group_by(Sample, 
-#           Kingdom, Phylum, Class, Order, Family) %>%
-#  filter(Abundance > 0.01) %>%                        #Filter 
-#  arrange(Class)
+BallastSeqR_family <- Ballast_physeq %>%
+  tax_glom(taxrank = "Family") %>%
+  transform_sample_counts(function(x) {x/sum(x)}) %>%
+  psmelt() %>%
+  group_by(Sample, Kingdom, Phylum, Class, Order, Family) %>%
+  filter(Abundance > 0.01) %>%
+  arrange(Class)
 
-#Creating a new column that combines both the Class and Family level information
-#so that Family level identifiers that are not unique to one Class (such as Ambiguous_taxa) aren't merged into a single large category when graphed
-#BallastSeqR_family$Class_family <- paste(BallastSeqR_family$Class, BallastSeqR_family$Family, sep="_")
+BallastSeqR_family$Class_family <- paste(BallastSeqR_family$Class,
+                                         BallastSeqR_family$Family, sep = "_")
 
-#Creating plot  
-#BallastSeqR_family_bar <- ggplot(BallastSeqR_family, aes(x = Sample, y = Abundance, fill = Class_family)) + 
-#  geom_bar(stat="identity", colour = "black", size=0.3, position = "fill") +
-# scale_fill_manual(values = c("black", 
-                               
-#                               "#440154FF", "#450659FF","#460B5EFF",
-                               
- #                              "#472D7AFF", 
-                               
-#                               "#3B518BFF", "#3A548CFF", "#38598CFF", "#365C8DFF", 
-#                               "#34608DFF", "#33638DFF", "#31678EFF", "#306A8EFF",
-#                               "#2E6E8EFF", "#2D718EFF", "#2B748EFF",
-#                               "#2A778EFF", "#297B8EFF",
-                               
-#                               "#1F958BFF", "#1F988BFF", "#1E9C89FF", "#1F9F88FF",
-#                               "#1FA287FF", "#21A585FF", "#23A983FF",
-#                               "#25AC82FF", "#29AF7FFF", "#2DB27DFF",
-#                               "#32B67AFF", "#37B878FF", "#3CBC74FF",
-                               
-#                               "#57C766FF", "#5EC962FF",
-                               
-#                               "#A2DA37FF",
-                               
-#                               "#DAE319FF", "#E4E419FF",  "#ECE51BFF", "#F5E61FFF"#,
-                               
-#                               "darkorchid1", "darkorchid2", "darkorchid3", 
-                               
-#                               "#A21C9AFF", "#A62098FF", "#AB2394FF", "#AE2892FF", "#B22B8FFF", "#B6308BFF", "#BA3388FF", "#BE3885FF", "#C13B82FF", "#C53F7EFF",
-#                               "#C8437BFF", "#CC4678FF", "#CE4B75FF", "#D14E72FF", #"#D5536FFF", "#D7566CFF", "#DA5B69FF", "#DD5E66FF", "#E06363FF",
-                               
-#                               "#FF6699",
-                               
-#                               "#F68D45FF", "#FCA537FF",
-                               
-#                               "#F6E726FF", "#F4ED27FF", 
-                               
-                               
-#                               "#00489C", "#CCCCCC", "#999999", "#A1C299", "#300018",
-                               
-#                               "#00489C", "#CCCCCC", "#999999", "#A1C299", "#300018",
-#                               "#00489C", "#CCCCCC", "#999999", "#A1C299", "#300018",
-#                               "#00489C", "#CCCCCC", "#999999", "#A1C299", "#300018")) +
-  
-#  guides(fill = guide_legend(reverse = FALSE, keywidth = 1, keyheight = 1)) +
-#  ylab("Relative Abundance (Family > 1%) \n") + xlab("Sample ID") +
-#  theme_minimal()+theme(panel.border = element_rect(fill=NA, colour = "black"), panel.grid.minor = element_blank(), 
-#                        panel.grid.major = element_blank(), axis.text.x  = element_text(angle = 90, vjust = 0.5, hjust=1, size=8, colour="black"), 
-#                        axis.text.y = element_text(size=8, colour="black"), plot#.title = element_text(hjust = 0.5), 
-#                        axis.ticks.x = element_line(colour="#000000", size=0.1), axis.ticks.y = element_line(colour="#000000", size=0.1),
-#                        legend.text = element_text(size = 7))  
+n_family_taxa <- length(unique(BallastSeqR_family$Class_family))
+family_colors <- colorRampPalette(c(bcc_hex))(n_family_taxa)
 
-#print(BallastSeqR_family_bar)
+BallastSeqR_family_bar <- ggplot(BallastSeqR_family,
+                                 aes(x = Sample, y = Abundance, fill = Class_family)) +
+  geom_bar(stat = "identity", colour = "black", linewidth = 0.3, position = "fill") +
+  scale_fill_manual(values = family_colors) +
+  guides(fill = guide_legend(reverse = FALSE, keywidth = 1, keyheight = 1)) +
+  ylab("Relative Abundance (Family > 1%) \n") + xlab("Sample ID") +
+  theme_minimal() + theme_ballast()
 
-#Make interactive plot
-#BallastSeqR_family_bar_interactive <- ggplotly(BallastSeqR_family_bar)
+print(BallastSeqR_family_bar)
 
-#BallastSeqR_family_bar_interactive
-
-#Save html of interactive plot on knit
-#htmlwidgets::saveWidget(BallastSeqR_family_bar_interactive, "BallastSeqR_family_bar_interactive.html")
-
-#htmltools::tags$iframe(
-#  src=file.path(getwd(), "BallastSeqR_family_bar_interactive.html"),
-#  width="100%",
-#  height="600",
-#  scrolling="no",
-#  seamless="seamless",
-#  frameBorder="0"
-#)
+BallastSeqR_family_bar_interactive <- ggplotly(BallastSeqR_family_bar)
+BallastSeqR_family_bar_interactive
 ```
 
 ## Family level, grouped by sample type
 
-```{r bcc sample type}
+```{r bcc family sample type}
 
-#Examining BCC by sample type
-#BallastSeqR_family_sample <- Ballast_physeq %>%
-#  tax_glom(taxrank = "Family") %>%                    #Agglomerate at family level
-#  transform_sample_counts(function(x) {x/sum(x)}) %>% #Transform to rel. abundance
-#  psmelt() %>%                                        #Melt to long format
-#  group_by(Sample_type, 
-#           Kingdom, Phylum, Class, Order, Family) %>%
-#  dplyr::summarize(Mean = 
-#                     mean(Abundance, na.rm=TRUE),
-#                    .groups = "keep") %>%             #Calculate average
-#  filter(Mean > 0.01) %>%                             #Filter 
-#  arrange(Class)
+BallastSeqR_family_sample <- Ballast_physeq %>%
+  tax_glom(taxrank = "Family") %>%
+  transform_sample_counts(function(x) {x/sum(x)}) %>%
+  psmelt() %>%
+  group_by(Sample_type, Kingdom, Phylum, Class, Order, Family) %>%
+  dplyr::summarize(Mean = mean(Abundance, na.rm = TRUE), .groups = "keep") %>%
+  filter(Mean > 0.01) %>%
+  arrange(Class)
 
-#Creating a new column that combines both the Class and Family level information
-#so that Family level identifiers that are not unique to one Class (such as Ambiguous_taxa) aren't merged into a single large category when graphed
-#BallastSeqR_family_sample$Class_family <- paste(BallastSeqR_family_sample$Class, BallastSeqR_family_sample$Family, sep="_")
+BallastSeqR_family_sample$Class_family <- paste(BallastSeqR_family_sample$Class,
+                                                BallastSeqR_family_sample$Family, sep = "_")
 
-#Creating plot  
-#BallastSeqR_sample_family_bar <- ggplot(BallastSeqR_family_sample, aes(x = Sample_type, y = Mean, fill = Class_family)) + 
-#  geom_bar(stat="identity", colour = "black", size=0.3, position = "fill") +
-#  scale_fill_manual(values = c("black", "#440154FF", "#450659FF","#460B5EFF","#472D7AFF", "#3B518BFF", "#3A548CFF", "#38598CFF", "#365C8DFF","#34608DFF", "#33638DFF", "#31678EFF", "#306A8EFF","#2E6E8EFF", "#2D718EFF", "#2B748EFF","#2A778EFF", "#297B8EFF","#1F958BFF", "#1F988BFF", "#1E9C89FF", "#1F9F88FF",
-#"#1FA287FF", "#21A585FF", "#23A983FF","#25AC82FF", "#29AF7FFF", "#2DB27DFF","#32B67AFF", "#37B878FF", "#3CBC74FF","#57C766FF", "#5EC962FF","#A2DA37FF",
-#"#DAE319FF", "#E4E419FF",  "#ECE51BFF", "#F5E61FFF","darkorchid1", "darkorchid2", "darkorchid3", "#A21C9AFF", "#A62098FF", "#AB2394FF", "#AE2892FF", "#B22B8FFF", "#B6308BFF", "#BA3388FF", "#BE3885FF", "#C13B82FF", "#C53F7EFF","#C8437BFF", "#CC4678FF", "#CE4B75FF", "#D14E72FF", "#D5536FFF", "#D7566CFF", "#DA5B69FF", "#DD5E66FF", "#E06363FF","#FF6699","#F68D45FF", "#FCA537FF","#F6E726FF", "#F4ED27FF", "#00489C", "#CCCCCC", "#999999", "#A1C299", "#300018","#00489C", "#CCCCCC", "#999999", "#A1C299", "#300018","#00489C", "#CCCCCC", "#999999", "#A1C299", "#300018","#00489C", "#CCCCCC", "#999999", "#A1C299", "#300018")) +
-  
-#  guides(fill = guide_legend(reverse = FALSE, keywidth = 1, keyheight = 1)) +
-#  ylab("Relative Abundance (Family > 1%) \n") + xlab("Sample ID") +
-#  theme_minimal()+theme(panel.border = element_rect(fill=NA, colour = "black"), panel.grid.minor = element_blank(), 
-#                        panel.grid.major = element_blank(), axis.text.x  = element_text(angle = 90, vjust = 0.5, hjust=1, size=8, colour="black"), 
-#                        axis.text.y = element_text(size=8, colour="black"), plot.title = element_text(hjust = 0.5), 
-#                        axis.ticks.x = element_line(colour="#000000", size=0.1), axis.ticks.y = element_line(colour="#000000", size=0.1),
-#                        legend.text = element_text(size = 7))  
+n_family_sample_taxa <- length(unique(BallastSeqR_family_sample$Class_family))
+family_sample_colors <- colorRampPalette(c(bcc_hex))(n_family_sample_taxa)
 
-#print(BallastSeqR_sample_family_bar)
+BallastSeqR_sample_family_bar <- ggplot(BallastSeqR_family_sample,
+                                        aes(x = Sample_type, y = Mean, fill = Class_family)) +
+  geom_bar(stat = "identity", colour = "black", linewidth = 0.3, position = "fill") +
+  scale_fill_manual(values = family_sample_colors) +
+  guides(fill = guide_legend(reverse = FALSE, keywidth = 1, keyheight = 1)) +
+  ylab("Relative Abundance (Family > 1%) \n") + xlab("Sample Type") +
+  theme_minimal() + theme_ballast()
 
-#Make interactive plot
-#BallastSeqR_sample_family_bar_interactive <- ggplotly(BallastSeqR_sample_family_bar)
+print(BallastSeqR_sample_family_bar)
 
-#BallastSeqR_sample_family_bar_interactive
-
-#Save html of interactive plot on knit
-#htmlwidgets::saveWidget(BallastSeqR_sample_family_bar_interactive, "BallastSeqR_sample_family_bar_interactive.html")
-
-#htmltools::tags$iframe(
-#  src=file.path(getwd(), "BallastSeqR_sample_family_bar_interactive.html"),
-#  width="100%",
-#  height="600",
-#  scrolling="no",
-#  seamless="seamless",
-#  frameBorder="0"
-#)
+BallastSeqR_sample_family_bar_interactive <- ggplotly(BallastSeqR_sample_family_bar)
+BallastSeqR_sample_family_bar_interactive
 ```
 
 ## Family level, grouped by sample type and voyage
 
 Creating the same bar plot as above, but with subsets within sample type showing the different voyages, since similar sample types that were collected during different voyages cluster separately on the NMDS and PCoA plots.
 
-```{r bcc sample type and voyage}
+```{r bcc family sample type and voyage}
 
-#Examining BCC by sample type & voyage
-#BallastSeqR_family_voyage <- Ballast_physeq %>%
-#  tax_glom(taxrank = "Family") %>%                    #Agglomerate at family level
-#  transform_sample_counts(function(x) {x/sum(x)}) %>% #Transform to rel. abundance
-#  psmelt() %>%                                        # Melt to long format
-#  group_by(Sample_type, Voyage, 
-#           Kingdom, Phylum, Class, Order, Family) %>%
-#  dplyr::summarize(Mean = 
-#                     mean(Abundance, na.rm=TRUE))# %>% #Calculate average
-#  filter(Mean > 0.01) %>%                             #Filter 
-#  arrange(Class)
+BallastSeqR_family_voyage <- Ballast_physeq %>%
+  tax_glom(taxrank = "Family") %>%
+  transform_sample_counts(function(x) {x/sum(x)}) %>%
+  psmelt() %>%
+  group_by(Sample_type, Voyage, Kingdom, Phylum, Class, Order, Family) %>%
+  dplyr::summarize(Mean = mean(Abundance, na.rm = TRUE), .groups = "keep") %>%
+  filter(Mean > 0.01) %>%
+  arrange(Class)
 
-#Creating a new column that combines both the Class and Family level information
-#so that Family level identifiers that are not unique to one Class (such as Ambiguous_taxa) aren't merged into a single large category when graphed
-#BallastSeqR_family_voyage$Class_family <- paste(BallastSeqR_family_voyage$Class, BallastSeqR_family_voyage$Family, sep="_")
+BallastSeqR_family_voyage$Class_family <- paste(BallastSeqR_family_voyage$Class,
+                                                BallastSeqR_family_voyage$Family, sep = "_")
 
-#Creating plot  
-#BallastSeqR_voyage_family_bar <- ggplot(BallastSeqR_family_voyage, aes(x = Voyage, y = Mean, fill = Class_family)) + 
-#  geom_bar(stat="identity", colour = "black", size=0.3, position = "fill") +
-#  scale_fill_manual(values = c("black", "#440154FF", "#450659FF","#460B5EFF","#472D7AFF", "#3B518BFF", "#3A548CFF", "#38598CFF", "#365C8DFF","#34608DFF", "#33638DFF", "#31678EFF", "#306A8EFF","#2E6E8EFF", "#2D718EFF", "#2B748EFF","#2A778EFF", "#297B8EFF","#1F958BFF", "#1F988BFF", "#1E9C89FF", "#1F9F88FF",
-#"#1FA287FF", "#21A585FF", "#23A983FF","#25AC82FF", "#29AF7FFF", "#2DB27DFF","#32B67AFF", "#37B878FF", "#3CBC74FF","#57C766FF", "#5EC962FF","#A2DA37FF",
-#"#DAE319FF", "#E4E419FF",  "#ECE51BFF", "#F5E61FFF","darkorchid1", "darkorchid2", "darkorchid3", "#A21C9AFF", "#A62098FF", "#AB2394FF", "#AE2892FF", "#B22B8FFF", "#B6308BFF", "#BA3388FF", "#BE3885FF", "#C13B82FF", "#C53F7EFF","#C8437BFF", "#CC4678FF", "#CE4B75FF", "#D14E72FF", "#D5536FFF", "#D7566CFF", "#DA5B69FF", "#DD5E66FF", "#E06363FF","#FF6699","#F68D45FF", "#FCA537FF","#F6E726FF", "#F4ED27FF", "#00489C", "#CCCCCC", "#999999", "#A1C299", "#300018","#00489C", "#CCCCCC", "#999999", "#A1C299", "#300018","#00489C", "#CCCCCC", "#999999", "#A1C299", "#300018","#00489C", "#CCCCCC", "#999999", "#A1C299", "#300018")) +
-  
-#  guides(fill = guide_legend(reverse = FALSE, keywidth = 1, keyheight = 1)) +
-#  ylab("Relative Abundance (Family > 1%) \n") + xlab("Voyage") +
-#  theme_minimal()+theme(panel.border = element_rect(fill=NA, colour = "black"), 
-#  panel.grid.minor = element_blank(),
-#  panel.grid.major = element_blank(), 
-#  axis.text.x  = element_text(angle = 90, vjust = 0.5, hjust=1, size=8, 
-#                              colour="black"), 
-#  axis.text.y = element_text(size=8, colour="black"), 
-#  plot.title = element_text(hjust = 0.5), 
-#  axis.ticks.x = element_line(colour="#000000", size=0.1), 
-#  axis.ticks.y = element_line(colour="#000000", size=0.1),
-#  legend.text = element_text(size = 7)) +
-#  facet_grid(. ~ Sample_type, margins = TRUE, scale="free")
+n_family_voyage_taxa <- length(unique(BallastSeqR_family_voyage$Class_family))
+family_voyage_colors <- colorRampPalette(c(bcc_hex))(n_family_voyage_taxa)
 
-#print(BallastSeqR_voyage_family_bar)
+BallastSeqR_voyage_family_bar <- ggplot(BallastSeqR_family_voyage,
+                                        aes(x = Voyage, y = Mean, fill = Class_family)) +
+  geom_bar(stat = "identity", colour = "black", linewidth = 0.3, position = "fill") +
+  scale_fill_manual(values = family_voyage_colors) +
+  guides(fill = guide_legend(reverse = FALSE, keywidth = 1, keyheight = 1)) +
+  ylab("Relative Abundance (Family > 1%) \n") + xlab("Voyage") +
+  theme_minimal() + theme_ballast() +
+  facet_grid(. ~ Sample_type, margins = TRUE, scale = "free")
 
-#Make interactive plot
-#p <- ggplotly(BallastSeqR_voyage_family_bar)
+print(BallastSeqR_voyage_family_bar)
 
-#p
-```
-
-```{r keep interactive plot}
-
-#htmlwidgets::saveWidget(p, "BallastSeqR_voyage_family_bar_interactive.html")
-
-#htmltools::tags$iframe(
-#  src=file.path(getwd(), "BallastSeqR_voyage_family_bar_interactive.html"),
-#  width="100%",
-#  height="600",
-#  scrolling="no",
-#  seamless="seamless",
-#  frameBorder="0"
-#)
+BallastSeqR_voyage_family_bar_interactive <- ggplotly(BallastSeqR_voyage_family_bar)
+BallastSeqR_voyage_family_bar_interactive
 ```
 
 ## Genus level, grouped by voyage and sample type
 
+Using `ggnested` for class-grouped legend colors.
+
 ```{r bcc genus voyage and sample type}
 
-#Examining BCC by sample type & voyage
-#BallastSeqR_genus_voyage <- Ballast_physeq %>%
-#  tax_glom(taxrank = "Genus") %>%                     #Agglomerate at genus level
-#  transform_sample_counts(function(x) {x/sum(x)}) %>% #Transform to rel. abundance
-#  psmelt() %>%                                        #Melt to long format
-#  group_by(Sample_type, Voyage, 
-#           Kingdom, Phylum, Class, Order, Family, Genus) %>%
-#  dplyr::summarize(Mean = 
-#                     mean(Abundance, na.rm=TRUE)) %>% #Calculate average
-#  filter(Mean > 0.01) %>%                             #Filter 
-#  arrange(Class)
+library(ggnested)
 
-#Creating a new column that combines both the Class and Family level information
-#so that Family level identifiers that are not unique to one Class (such as Ambiguous_taxa) aren't merged into a single large category when graphed
-#BallastSeqR_genus_voyage$Class_genus <- paste(BallastSeqR_genus_voyage$Class, BallastSeqR_genus_voyage$Genus, sep="_")
+BallastSeqR_genus_voyage <- Ballast_physeq %>%
+  tax_glom(taxrank = "Genus") %>%
+  transform_sample_counts(function(x) {x/sum(x)}) %>%
+  psmelt() %>%
+  group_by(Sample_type, Voyage, Kingdom, Phylum, Class, Order, Family, Genus) %>%
+  dplyr::summarize(Mean = mean(Abundance, na.rm = TRUE), .groups = "keep") %>%
+  filter(Mean > 0.01) %>%
+  arrange(Class)
 
-#Creating plot  
-#BallastSeqR_voyage_genus_bar <- ggplot(BallastSeqR_genus_voyage, 
-#  aes(x = Sample_type, y = Mean, fill = Class_genus)) +
-#  geom_bar(stat="identity", colour = "black", size=0.3, position = "fill") +
-#  scale_fill_manual(
-#  breaks=BallastSeqR_genus_voyage$Class_genus,
-#  labels=BallastSeqR_genus_voyage$Genus, 
-#  values = c("black", "#440154FF", "#450659FF","#460B5EFF","#472D7AFF", "#3B518BFF", "#3A548CFF", "#38598CFF", "#365C8DFF","#34608DFF", "#33638DFF", "#31678EFF", "#306A8EFF","#2E6E8EFF", "#2D718EFF", "#2B748EFF","#2A778EFF", "#297B8EFF","#1F958BFF", "#1F988BFF", "#1E9C89FF", "#1F9F88FF",
-#"#1FA287FF", "#21A585FF", "#23A983FF","#25AC82FF", "#29AF7FFF", "#2DB27DFF","#32B67AFF", "#37B878FF", "#3CBC74FF","#57C766FF", "#5EC962FF","#A2DA37FF",
-#"#DAE319FF", "#E4E419FF",  "#ECE51BFF", "#F5E61FFF","darkorchid1", "darkorchid2", "darkorchid3", "#A21C9AFF", "#A62098FF", "#AB2394FF", "#AE2892FF", "#B22B8FFF", "#B6308BFF", "#BA3388FF", "#BE3885FF", "#C13B82FF", "#C53F7EFF","#C8437BFF", "#CC4678FF", "#CE4B75FF", "#D14E72FF", "#D5536FFF", "#D7566CFF", "#DA5B69FF", "#DD5E66FF", "#E06363FF","#FF6699","#F68D45FF", "#FCA537FF","#F6E726FF", "#F4ED27FF", "#00489C", "#CCCCCC", "#999999", "#A1C299", "#300018","#00489C", "#CCCCCC", "#999999", "#A1C299", "#300018","#00489C", "#CCCCCC", "#999999", "#A1C299", "#300018","#00489C", "#CCCCCC", "#999999", "#A1C299", "#300018")) +
-  
-#  guides(fill = guide_legend(reverse = FALSE, keywidth = 1, keyheight = 1)) +
-#  ylab("Relative Abundance (Genus > 1%) \n") + xlab("Sample Type") +
-#  theme_minimal()+theme(panel.border = element_rect(fill=NA, colour = "black"), 
-#  panel.grid.minor = element_blank(),
-#  panel.grid.major = element_blank(), 
-#  axis.text.x  = element_text(angle = 90, vjust = 0.5, hjust=1, size=8, 
-#                              colour="black"), 
-#  axis.text.y = element_text(size=8, colour="black"), 
-#  plot.title = element_text(hjust = 0.5), 
-#  axis.ticks.x = element_line(colour="#000000", size=0.1), 
-#  axis.ticks.y = element_line(colour="#000000", size=0.1),
-#  legend.text = element_text(size = 7)) +
-#  facet_wrap(~ Voyage, scale="free")
+BallastSeqR_genus_voyage_filt <- data.frame(BallastSeqR_genus_voyage)
 
-#print(BallastSeqR_voyage_genus_bar)
+pal_genus <- c("#440154FF", "blue", "green", "yellow", "purple", "orange", "#FF6699")
+names(pal_genus) <- unique(BallastSeqR_genus_voyage_filt$Class)
 
-#Make interactive plot
-#p <- ggplotly(BallastSeqR_voyage_genus_bar)
+BallastSeqR_voyage_genus_bar_ggnested <- ggnested::ggnested(
+  BallastSeqR_genus_voyage_filt,
+  aes(x = Sample_type, y = Mean, main_group = Class, sub_group = Genus),
+  main_palette = pal_genus) +
+  geom_bar(stat = "identity", colour = "black", linewidth = 0.3, position = "fill") +
+  facet_wrap(~ Voyage, scale = "free") +
+  guides(fill = guide_legend(reverse = FALSE, keywidth = 1, keyheight = 1)) +
+  ylab("Relative Abundance (Genus > 1%) \n") + xlab("Sample Type") +
+  theme_minimal() + theme_ballast()
 
-#p
-```
+print(BallastSeqR_voyage_genus_bar_ggnested)
 
-```{r keep genus level interactive plot}
-
-#htmlwidgets::saveWidget(p, "R output/BallastSeqR_voyage_genus_bar_interactive.html")
-
-#htmltools::tags$iframe(
-#  src=file.path(getwd(), "R output/BallastSeqR_voyage_genus_bar_interactive.html"),
-#  width="100%",
-#  height="600",
-#  scrolling="no",
-#  seamless="seamless",
-#  frameBorder="0"
-#)
-```
-
-### Re-creating the above plot using ggnested
-
-The ggnested package enables grouping of categories in the legend, which allows for genera to be grouped under class labels. The package also color-codes by main_group (in this case Class).
-
-```{r ggnested genus}
-
-#require("ggnested")
-
-#Convert to a dataframe
-#BallastSeqR_genus_voyage_filt <- data.frame(BallastSeqR_genus_voyage) 
-
-#Custom color palette
-#pal <- c("#440154FF", "blue", "green", "yellow", "purple", "orange", "#FF6699")
-#names(pal) <- unique(BallastSeqR_genus_voyage_filt$Class)
-
-#Use ggnested to create the bar plot
-#BallastSeqR_voyage_genus_bar_ggnested <- ggnested::ggnested(BallastSeqR_genus_voyage_filt, 
-#         aes(x = Sample_type, 
-#             y = Mean, 
-#             main_group = Class, 
-#             sub_group = Genus),
-#          main_palette = pal) + 
-#  geom_bar(stat="identity", colour = "black", size=0.3, position = "fill") +
-#  facet_wrap(~ Voyage, scale="free") +
-#  guides(fill = guide_legend(reverse = FALSE, keywidth = 1, keyheight = 1)) +
-#  ylab("Relative Abundance (Genus > 1%) \n") + xlab("Sample Type") +
-#  theme_minimal()+theme(
-#    strip.text = element_text(size=12),
-#    panel.border = element_rect(fill=NA, colour = "black"), 
-#    panel.grid.minor = element_blank(),
-#    panel.grid.major = element_blank(), 
-#    axis.title.x = element_text(size=12),
-#    axis.title.y = element_text(size=12),
-#    axis.text.x  = element_text(angle = 90, vjust = 0.5, hjust=1, size=10, 
-#                              colour="black"), 
-#    axis.text.y = element_text(size=10, colour="black"), 
-#    plot.title = element_text(hjust = 0.5), 
-#    axis.ticks.x = element_line(colour="#000000", size=0.1), 
-#    axis.ticks.y = element_line(colour="#000000", size=0.1),
-#    legend.text = element_text(size = 10)) +
-#  facet_wrap(~ Voyage, scale="free")
-
-#print(BallastSeqR_voyage_genus_bar_ggnested)
-
-```
-
-Save as svg:
-
-```{r ggnested plot svg}
-
-#ggsave(filename="R output/BallastSeqR_voyage_sample_genus_bar.svg", 
-#       plot=BallastSeqR_voyage_genus_bar_ggnested, width=10, height=6, device=svg)
+ggsave(filename = "R output/BallastSeqR_voyage_sample_genus_bar.svg",
+       plot = BallastSeqR_voyage_genus_bar_ggnested, width = 10, height = 6, device = svg)
 ```
 
 ## Species level, grouped by voyage and sample type
@@ -1242,7 +1130,7 @@ BallastSeqR_voyage_species_bar_ggnested <- ggnested::ggnested(BallastSeqR_specie
              main_group = Class, 
              sub_group = Species),
           main_palette = pal) + 
-  geom_bar(stat="identity", colour = "black", size=0.3, position = "fill") +
+  geom_bar(stat = "identity", colour = "black", linewidth = 0.3, position = "fill") +
   facet_wrap(~ Voyage, scale="free") +
   guides(fill = guide_legend(reverse = FALSE, keywidth = 1, keyheight = 1)) +
   ylab("Relative Abundance (Species > 1%) \n") + xlab("Sample Type") +
@@ -1257,89 +1145,178 @@ BallastSeqR_voyage_species_bar_ggnested <- ggnested::ggnested(BallastSeqR_specie
                               colour="black"), 
     axis.text.y = element_text(size=10, colour="black"), 
     plot.title = element_text(hjust = 0.5), 
-    axis.ticks.x = element_line(colour="#000000", size=0.1), 
-    axis.ticks.y = element_line(colour="#000000", size=0.1),
+    axis.ticks.x = element_line(colour="#000000", linewidth=0.1), 
+    axis.ticks.y = element_line(colour="#000000", linewidth=0.1),
     legend.text = element_text(size = 10)) +
   facet_wrap(~ Voyage, scale="free")
 
 print(BallastSeqR_voyage_species_bar_ggnested)
 ```
 
-### Create plot with fantaxtic
+### Create Figure 3: Faceted grouped bar plot
 
-#### Relative abundance
+Top 10 species from the top 3 classes, shown as a faceted grouped bar plot with a common baseline. Each panel shows one species, with sample types on the x-axis and mean relative abundance (+/- SE) on the y-axis. This layout allows direct comparison of each taxon's abundance across treatments.
 
-```{r fantaxtic class species plot}
+```{r fig3 data prep}
 
-#Merge by sample_type and voyage; there is a separate category in the metadata that combines these categories together
-Ballast_physeq_merged <- speedyseq::merge_samples2(Ballast_physeq, "Type_voyage", fun_otu = mean)
-SD <- speedyseq::merge_samples2(sample_data(Ballast_physeq), "Type_voyage")
-print(SD[, "Type_voyage"])
-
-#Now samples will be displayed by sample_type rather than individially when graphed using fantaxtic
-
-#Label and order variables
-sample_data(Ballast_physeq_merged)$Type_voyage <- factor(sample_data(Ballast_physeq_merged)$Type_voyage, 
-               levels = c("port_uptake_1", "BWT_1", "ocean_uptake_1",
-                          "BWT_BWE_1", "port_uptake_2", "BWT_2"),
-               labels = c("Port uptake V1", "BWT V1", "Ocean uptake V1",
-                          "BWT+BWE V1", "Port uptake V2", "BWT V2"))
-
-#Load fantaxtic and create plot
 library("fantaxtic")
-                        
+
+# Merge samples for identifying top taxa (used only for ranking)
+Ballast_physeq_merged <- speedyseq::merge_samples2(Ballast_physeq, "Type_voyage",
+                                                     fun_otu = mean)
+
 top_nested <- nested_top_taxa(Ballast_physeq_merged,
-                              #grouping = "Type_voyage",
                               top_tax_level = "Class",
                               nested_tax_level = "Species",
-                              n_top_taxa = 3, 
+                              n_top_taxa = 3,
                               n_nested_taxa = 10)
 
-#Order samples
-order <- c("port_uptake_1", "BWT_1", "ocean_uptake_1",
-                          "BWT_BWE_1", "port_uptake_2", "BWT_2")
-order <- as.character(order)
+# Extract class-species pairs from fantaxtic (preserves which species belongs to which class)
+top_class_species <- tax_table(top_nested$ps_obj) %>%
+  as.data.frame() %>%
+  filter(Species != "Other", Class != "Other") %>%
+  distinct(Class, Species)
 
-#Plot
-plot <- plot_nested_bar(ps_obj = top_nested$ps_obj,
-                top_level = "Class",
-                nested_level = "Species",
-                sample_order = order) +
-  facet_wrap(~ Voyage, scale="free") +
-  labs(x = "Sample type", y = "Relative abundance") +
-  scale_x_discrete(labels=c("Port uptake V1", "BWT V1", "Ocean uptake V1",
-                          "BWT+BWE V1", "Port uptake V2", "BWT V2")) +
-  theme_minimal()+theme(
-    strip.text = element_text(size=12),
-    panel.border = element_rect(fill=NA, colour = "black"), 
-    panel.grid.minor = element_blank(),
-    panel.grid.major = element_blank(), 
-    axis.title.x = element_text(size=12),
-    axis.title.y = element_text(size=12),
-    axis.text.x  = element_text(angle = 90, vjust = 0.5, hjust=1, size=10, 
-                              colour="black"), 
-    axis.text.y = element_text(size=10, colour="black"), 
-    plot.title = element_text(hjust = 0.5), 
-    axis.ticks.x = element_line(colour="#000000", size=0.1), 
-    axis.ticks.y = element_line(colour="#000000", size=0.1),
-    legend.text = element_text(size = 10))
+top_class_names <- unique(top_class_species$Class)
+top_species_names <- unique(top_class_species$Species)
 
-print(plot)
+# Clean species names (used for matching before gsub is applied to fig3_data)
+top_species_names_clean <- gsub("_", " ", top_species_names)
 
-#Make interactive plot
-p <- ggplotly(plot)
+# Now compute per-sample relative abundances at the species level (not merged)
+fig3_data <- Ballast_physeq %>%
+  tax_glom(taxrank = "Species") %>%
+  transform_sample_counts(function(x) {x / sum(x)}) %>%
+  psmelt() %>%
+  # Join on class-species pairs to avoid cross-class contamination
+  inner_join(top_class_species, by = c("Class", "Species")) %>%
+  group_by(Sample_type, Voyage, Class, Species) %>%
+  dplyr::summarize(
+    Mean = mean(Abundance, na.rm = TRUE),
+    SE = sd(Abundance, na.rm = TRUE) / sqrt(n()),
+    .groups = "drop"
+  )
 
-p
+# Order Class as a factor so panels group by class
+fig3_data$Class <- factor(fig3_data$Class, levels = top_class_names)
 
+# Replace underscores with spaces in species names
+fig3_data$Species <- gsub("_", " ", fig3_data$Species)
 
+# Remove sample types that don't exist in Voyage 2
+fig3_data <- fig3_data %>%
+  filter(!(Voyage == "Voyage 2" & Sample_type %in% c("Ocean uptake", "BWT+BWE"))) %>%
+  droplevels()
 ```
 
-Save as svg:
+#### Calculate proportion of community represented by top taxa
 
-```{r species fantaxtic svg}
+```{r fig3 community proportion}
 
-ggsave(filename="R output/BallastSeqR_voyage_species_bar_interactive_fantaxtic.svg", 
-       plot=plot, width=10, height=6, device=svg)
+# Per-sample relative abundances at species level
+fig3_all_species <- Ballast_physeq %>%
+  tax_glom(taxrank = "Species") %>%
+  transform_sample_counts(function(x) {x / sum(x)}) %>%
+  psmelt()
+
+# Clean species names to match
+fig3_all_species$Species <- gsub("_", " ", fig3_all_species$Species)
+
+# Total relative abundance accounted for by the top species per sample
+fig3_top_proportion <- fig3_all_species %>%
+  mutate(is_top = Species %in% gsub("_", " ", top_species_names) &
+                  Class %in% top_class_names) %>%
+  group_by(Sample, Sample_type, Voyage) %>%
+  dplyr::summarize(
+    top_taxa_abundance = sum(Abundance[is_top]),
+    .groups = "drop"
+  )
+
+# Summary across all samples
+cat("Proportion of community composition represented by top 10 species in top 3 classes:\n")
+cat(sprintf("  Mean:   %.1f%%\n", mean(fig3_top_proportion$top_taxa_abundance) * 100))
+cat(sprintf("  Median: %.1f%%\n", median(fig3_top_proportion$top_taxa_abundance) * 100))
+cat(sprintf("  Range:  %.1f%% - %.1f%%\n",
+            min(fig3_top_proportion$top_taxa_abundance) * 100,
+            max(fig3_top_proportion$top_taxa_abundance) * 100))
+
+# Breakdown by sample type
+fig3_proportion_by_type <- fig3_top_proportion %>%
+  group_by(Sample_type) %>%
+  dplyr::summarize(
+    Mean_pct = mean(top_taxa_abundance) * 100,
+    SD_pct = sd(top_taxa_abundance) * 100,
+    .groups = "drop"
+  )
+
+knitr::kable(fig3_proportion_by_type,
+             col.names = c("Sample type", "Mean %", "SD %"),
+             digits = 1) %>%
+  kableExtra::kable_styling("striped", latex_options = "scale_down")
+```
+
+```{r fig3 color palette}
+
+# Create class-based color palette
+n_classes <- length(top_class_names)
+class_base_colors <- RColorBrewer::brewer.pal(max(3, n_classes), "Dark2")[1:n_classes]
+names(class_base_colors) <- top_class_names
+
+# Map each species to a shade of its parent class color
+species_colors <- fig3_data %>%
+  distinct(Class, Species) %>%
+  arrange(Class, Species) %>%
+  group_by(Class) %>%
+  mutate(
+    n = n(),
+    idx = row_number(),
+    color = colorRampPalette(
+      c(class_base_colors[as.character(Class[1])],
+        colorspace::lighten(class_base_colors[as.character(Class[1])], 0.6))
+    )(n[1])[idx]
+  ) %>%
+  ungroup()
+
+species_pal <- setNames(species_colors$color, species_colors$Species)
+
+# Create a combined Class_Species factor for faceting, ordered by Class then Species
+fig3_data <- fig3_data %>%
+  arrange(Class, Species) %>%
+  mutate(Class_Species = factor(Species, levels = unique(Species)))
+```
+
+```{r fig3 grouped bar plot, fig.width=16, fig.height=14}
+
+fig3 <- ggplot(fig3_data, aes(x = Sample_type, y = Mean, fill = Sample_type)) +
+  geom_col(width = 0.7, colour = "black", linewidth = 0.2) +
+  geom_errorbar(aes(ymin = pmax(Mean - SE, 0), ymax = Mean + SE),
+                width = 0.25, linewidth = 0.3) +
+  facet_nested(Class + Class_Species ~ Voyage, scales = "free_y",
+               nest_line = element_line(colour = "black")) +
+  scale_fill_manual(values = sample_type_colors, "Sample Type") +
+  labs(x = "Sample type",
+       y = "Mean relative abundance",
+       caption = "Relative abundance calculated as proportion of total reads per sample.\nBars show mean across biological replicates; error bars show ± 1 SE.") +
+  theme_minimal() +
+  theme_ballast() +
+  theme(
+    strip.text.y = element_text(size = 9, angle = 0),
+    strip.text.x = element_text(size = 11),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+    plot.caption = element_text(size = 8, hjust = 0, colour = "grey40"),
+    ggh4x.facet.nestline = element_line(linetype = "solid")
+  )
+
+print(fig3)
+```
+
+```{r fig3 save}
+
+ggsave(filename = "R output/Fig3_grouped_bar_species.svg",
+       plot = fig3, width = 12, height = 22, device = svg)
+
+ggsave(filename = "R output/Fig3_grouped_bar_species.png",
+       plot = fig3, width = 12, height = 22, dpi = 300)
 ```
 
 ##### Create this plot with patterns overlayed
@@ -1448,11 +1425,14 @@ Add patterns to plot:
 
 ```{r add patterns to fantaxtic plot}
 
+type_voyage_order <- c("port_uptake_1", "BWT_1", "ocean_uptake_1",
+                       "BWT_BWE_1", "port_uptake_2", "BWT_2")
+
 #Plot
 plot_pattern <- plot_nested_bar(ps_obj = top_nested$ps_obj,
                 top_level = "Class",
                 nested_level = "Species",
-                sample_order = order) +
+                sample_order = type_voyage_order) +
   facet_wrap(~ Voyage, scale="free") +
   labs(x = "Sample type", y = "Relative abundance") +
   scale_x_discrete(labels=c("Port uptake V1", "BWT V1", "Ocean uptake V1",
@@ -1477,8 +1457,8 @@ plot_pattern <- plot_nested_bar(ps_obj = top_nested$ps_obj,
                               colour="black"), 
     axis.text.y = element_text(size=10, colour="black"), 
     plot.title = element_text(hjust = 0.5), 
-    axis.ticks.x = element_line(colour="#000000", size=0.1), 
-    axis.ticks.y = element_line(colour="#000000", size=0.1),
+    axis.ticks.x = element_line(colour="#000000", linewidth=0.1), 
+    axis.ticks.y = element_line(colour="#000000", linewidth=0.1),
     legend.text = element_text(size = 10))
 
 print(plot_pattern)
@@ -1583,8 +1563,8 @@ p <- ggnested(psdf,
                               colour="black"), 
     axis.text.y = element_text(size=10, colour="black"), 
     plot.title = element_text(hjust = 0.5), 
-    axis.ticks.x = element_line(colour="#000000", size=0.1), 
-    axis.ticks.y = element_line(colour="#000000", size=0.1),
+    axis.ticks.x = element_line(colour="#000000", linewidth=0.1), 
+    axis.ticks.y = element_line(colour="#000000", linewidth=0.1),
     legend.text = element_text(size = 10))
 
 
@@ -1665,8 +1645,8 @@ plot2 <- plot_nested_bar(ps_obj = top_nested_group$ps_obj,
                               colour="black"), 
     axis.text.y = element_text(size=10, colour="black"), 
     plot.title = element_text(hjust = 0.5), 
-    axis.ticks.x = element_line(colour="#000000", size=0.1), 
-    axis.ticks.y = element_line(colour="#000000", size=0.1),
+    axis.ticks.x = element_line(colour="#000000", linewidth=0.1), 
+    axis.ticks.y = element_line(colour="#000000", linewidth=0.1),
     legend.text = element_text(size = 10))
 
 ```
@@ -1822,931 +1802,13 @@ print(species_dot_2)
 
 ```
 
-# DESeq2 analysis on MetaCyc data
-
-## Create the DESeq object
-
-```{r MetaCyc DESeq object}
-
-#Load metadata as a tibble
-picrust_metadata <- read_delim("PICRUSt2-analysis/PICRUSt-Metadata.txt", delim = "\t", escape_double = FALSE, trim_ws = TRUE) 
-
-#Load metacyc pathway abundance as a matrix
-ballast_metacyc_abundance <- read_delim("PICRUSt2-analysis/MetaCyc_version/pathways_out/path_abun_unstrat_edited.tsv", delim = "\t")
-
-#Check to see if metadata and pathway abundance samples are in the same order
-head(ballast_metacyc_abundance)
-
-head(picrust_metadata)
-
-#In the picrust_metadata, make the sample-id column the rownames
-picrust_metadata <- column_to_rownames(picrust_metadata, var = "sample-id")
-
-#In the pathway abundance matrix, make the pathway column the rownames
-ballast_metacyc_abundance <- column_to_rownames(ballast_metacyc_abundance, var = "pathway")
-
-#The order of the rownames in the metadata file and the column names in the pathway abundance file don't match; they need to be in the same order before we can make this a DESeq object, because DESeq will assume that the sample order is consistent between the two
-all(rownames(picrust_metadata) == colnames(ballast_metacyc_abundance))
-ballast_metacyc_abundance <- ballast_metacyc_abundance[, rownames(picrust_metadata)]
-all(rownames(picrust_metadata) == colnames(ballast_metacyc_abundance))
-
-#Make Voyage & Sample_type factors
-picrust_metadata$Voyage <- factor(picrust_metadata$Voyage, 
-               levels = c("1", "2"),
-               labels = c("Voyage 1", "Voyage 2"))
-
-picrust_metadata$Sample_type <- factor(picrust_metadata$Sample_type, 
-               levels = c("port_uptake", "ocean_uptake", "BWT", "BWT_BWE"),
-               labels = c("Port uptake", "Ocean uptake", "BWT", "BWT+BWE"))
-
-#Create a DESeq object from the MetaCyc count data; using both Voyage and Sample_type in the design formula in order to get a clearer picture of the differences in function that can be attributed to the different sample types
-ballast_deseq <- DESeqDataSetFromMatrix(countData = round(ballast_metacyc_abundance),
-                              colData = picrust_metadata, 
-                              design = ~ Voyage + Sample_type)
-ballast_deseq
-
-
-#Make sure that the control is the reference level so that the default log2fold changes are calculated as treatment vs. control instead of vice versa
-ballast_deseq$Sample_type <- relevel(ballast_deseq$Sample_type, ref = "Port uptake")
-
-#May add this part in later if I find that I have technical replicates: Collapse technical replicates (i.e., multiple sequencing runs of the same library) using the collapseReplicates function?
-
-```
-
-## Load pathway descriptions
-
-Load dataframes containing pathway descriptions; this will be used to add descriptions to the pathways identified by DESeq2 later. The path_abun_unstrat_descrip file, which contains the lowest level pathway description, was exported from PICRUSt2. The files in the upperlevel_descrip folder contain higher level descriptions of the pathways and were downloaded from <https://github.com/Jiung-Wen/picrust_mapping/tree/master>
-
-The upper level descriptions include the top levels of the MetaCyc pathways, while the second level file contains the sub-classes of this top level.
-
-```{r load pathway descriptions}
-
-#Load pathways descriptions as a matrix
-ballast_metacyc_descriptions <- read_delim("PICRUSt2-analysis/MetaCyc_version/pathways_out/path_abun_unstrat_descrip.tsv", delim = "\t")
-
-#Keep just the pathway and descritpions columns in this dataframe
-ballast_metacyc_descriptions <- dplyr::select(ballast_metacyc_descriptions, c(pathway, description))
-
-#Load upper level MetaCyc pathway descriptions; add column names that match the descriptions dataframe above
-ballast_metacyc_second_level <- read_delim("PICRUSt2-analysis/MetaCyc_version/pathways_out/upperlevel_descrip/metacyc_sec.tsv", delim = "\t", col_names = c("pathway", "second_level"))
-
-ballast_metacyc_top_level <- read_delim("PICRUSt2-analysis/MetaCyc_version/pathways_out/upperlevel_descrip/metacyc_top.tsv", delim = "\t", col_names = c("pathway", "top_level"))
-
-#Combine upper level descriptions with the description pathways dataframe
-ballast_metacyc_descriptions2 <- ballast_metacyc_descriptions %>%
-  left_join(ballast_metacyc_second_level, by = "pathway")  
-
-ballast_metacyc_all_levels <- ballast_metacyc_descriptions2 %>%
-  left_join(ballast_metacyc_top_level, by = "pathway")  
-```
-
-## Create PCA of all MetaCyc results in DESeq2
-
-### PCA with labels and arrows
-
-```{r MetaCyc PCA labels}
-
-#Transforming the DESeq data using a regularized log transformation
-rld <- rlog(ballast_deseq, blind=TRUE)
-
-#Plot the PCA (Principle Component Analysis, not to be confused with PCoA, Principle Coordinate Analysis)
-plotPCA(rld, intgroup=c("Voyage", "Sample_type", "Sample_number"))
-
-#Customize the PCA plot using the ggplot function
-pcaData <- plotPCA(rld, intgroup=c("Voyage", "Sample_type", "Sample_number"), returnData=TRUE)
-percentVar <- round(100 * attr(pcaData, "percentVar"))
-ggplot(pcaData, aes(PC1, PC2, color=Sample_type, shape=Voyage)) +
-  xlab(paste0("PC1: ",percentVar[1],"% variance")) +
-  ylab(paste0("PC2: ",percentVar[2],"% variance")) + 
-  coord_fixed() +
-  geom_point(mapping = aes(colour = factor(Sample_type), shape = factor(Voyage), size = 3)) +
-  geom_text(aes(label = Sample_number, colour = factor(Sample_type)), nudge_x=0.25, nudge_y=0.25, check_overlap = TRUE) +
-  scale_colour_manual(values = c("Port uptake" = "#E7298A", "Ocean uptake" = "#7570B3", "BWT" = "#1B9E77", "BWT+BWE" = "#D95F02"), "Sample Type") +
-  scale_shape_manual(values = c("Voyage 1" = 16, "Voyage 2" = 17), name = "Voyage") +
-  guides(size=FALSE) +
-  guides(shape = guide_legend(override.aes = list(size = 3))) +
-  theme(plot.title = element_text(size = 18),
-        text = element_text(size = 18), 
-        axis.title = element_text(size = 15),
-        panel.spacing = unit(1, "lines"), 
-        panel.border = element_rect(colour = "black", fill = NA, size = 0.5), 
-        panel.background = element_blank(), 
-        legend.text = element_text(size = 15),
-        legend.title = element_text(size = 15),
-        legend.justification = c("right", "top")) +
-  geom_segment(
-  aes(x = -2.1, y = -2.4, xend = 1.5, yend = -1.0),
-  arrow = arrow(length = unit(0.03, "npc"))) +
-   geom_segment(
-  aes(x = -1.7, y = 1.9, xend = 0.4, yend = 1.4),
-  arrow = arrow(length = unit(0.03, "npc")), colour = "#E41A1C") +
-   geom_segment(
-  aes(x = -0.8, y = 0.40, xend = 3.2, yend = -0.5),
-  arrow = arrow(length = unit(0.03, "npc"))) +
-  geom_curve(
-  aes(x = -1.5, y = 3.45, xend = 1.5, yend = 1.6),
-  arrow = arrow(length = unit(0.03, "npc")), curvature = -0.3) +
-  geom_segment(
-  aes(x = 3.3, y = -0.4, xend = 0.90, yend = 1.2),
-  arrow = arrow(length = unit(0.03, "npc")), colour = "#E41A1C") 
-```
-
-### PCA without labels and arrows
-
-```{r MetaCyc PCA no labels}
-
-#Transforming the DESeq data using a regularized log transformation
-rld <- rlog(ballast_deseq, blind=TRUE)
-
-#Plot the PCA (Principle Component Analysis, not to be confused with PCoA, Principle Coordinate Analysis)
-plotPCA(rld, intgroup=c("Voyage", "Sample_type"))
-
-#Customize the PCA plot using the ggplot function
-pcaData <- plotPCA(rld, intgroup=c("Voyage", "Sample_type"), returnData=TRUE)
-percentVar <- round(100 * attr(pcaData, "percentVar"))
-ggplot(pcaData, aes(PC1, PC2, color=Sample_type, shape=Voyage)) +
-  xlab(paste0("PC1: ",percentVar[1],"% variance")) +
-  ylab(paste0("PC2: ",percentVar[2],"% variance")) + 
-  coord_fixed() +
-  geom_point(mapping = aes(colour = factor(Sample_type), shape = factor(Voyage), size = 3)) +
-  scale_colour_manual(values = c("Port uptake" = "#E7298A", "Ocean uptake" = "#7570B3", "BWT" = "#1B9E77", "BWT+BWE" = "#D95F02"), "Sample Type") +
-  scale_shape_manual(values = c("Voyage 1" = 16, "Voyage 2" = 17), name = "Voyage") +
-  guides(size=FALSE) +
-  guides(shape = guide_legend(override.aes = list(size = 3))) +
-  theme(plot.title = element_text(size = 18),
-        text = element_text(size = 18), 
-        axis.title = element_text(size = 15),
-        panel.spacing = unit(1, "lines"), 
-        panel.border = element_rect(colour = "black", fill = NA, size = 0.5), 
-        panel.background = element_blank(), 
-        legend.text = element_text(size = 15),
-        legend.title = element_text(size = 15),
-        legend.justification = c("right", "top"))
-```
-
-## BWT vs port uptake
-
-### Based on lowest level of functional annotation
-
-```{r DESeq2 MetaCyc}
-
-#Run DESeq
-ballast_deseq <- DESeq(ballast_deseq, test="Wald")
-
-#Show results
-res_ballast_deseq <- results(ballast_deseq)
-res_ballast_deseq
-
-#Check which comparisons are contained in the deseq object:
-resultsNames(ballast_deseq)
-
-#Just want to compare Port_uptake with BWT; creating a results table with only this information
-res_ballast_deseq_BWT <- results(ballast_deseq, contrast=c("Sample_type","BWT","Port uptake"), alpha=0.05)
-
-#Show results summary
-summary(res_ballast_deseq_BWT)
-
-#Log fold change shrinkage on the effluent_TWW_vs_CON comparison
-resLFC <- lfcShrink(ballast_deseq, coef="Sample_type_BWT_vs_Port.uptake", type="apeglm")
-resLFC
-
-#"It is more useful visualize the MA-plot for the shrunken log2 fold changes, 
-#which remove the noise associated with log2 fold changes from low count genes 
-#without requiring arbitrary filtering thresholds."
-#https://www.bioconductor.org/packages/devel/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#why-un-normalized-counts
-plotMA(resLFC)
-
-#Convert results to dataframe
-df_ballast_deseq_BWT <- as.data.frame(res_ballast_deseq_BWT)
-
-#Filter based on adj p-value, removing non-significant values (p>0.05). This also removes p-values that are NA; NA p-values exist because when p-values do not pass the filter threshold (p-values less than 0.1) they are set to NA. More information in vignette("DESeq2") under "Note on p-values set to NA"
-df_ballast_deseq_BWT_filt <- filter(df_ballast_deseq_BWT, padj <= 0.05)
-
-#Order by adjusted p-value
-df_ballast_deseq_BWT_filt = df_ballast_deseq_BWT_filt[order(df_ballast_deseq_BWT_filt$padj, na.last=NA), ]
-
-#Add pathway descriptions to the DESeq results using the left_join function in dplyr; rownames in the DESeq output need to be a column labeled pathway in order to match that of the descriptions dataframe
-df_ballast_deseq_BWT_filt <- rownames_to_column(df_ballast_deseq_BWT_filt, var = "pathway")
-
-df_ballast_deseq_BWT_filt_descrip <- df_ballast_deseq_BWT_filt %>%
-  left_join(ballast_metacyc_all_levels, by = "pathway")
-
-```
-
-#### Create dot plot of results - log2fold change, colored by top_level
-
-```{r deseq dot plot colors}
-
-#Create color scheme
-fold_change_col = colorRampPalette(brewer.pal(9,"Dark2"))(12)
-```
-
-```{r log2fold change}
-
-#Plot
-log2foldplot <- ggplot(df_ballast_deseq_BWT_filt_descrip, 
-                       aes(x=log2FoldChange, y=description, color=top_level)) + geom_point(size=6) +
-  scale_color_manual(values = fold_change_col) +
-  geom_vline(xintercept = 0, linetype="dashed", color = "black", size=1) +
-  theme_bw() +
-  theme(panel.grid.minor = element_blank()) 
-
-print(log2foldplot)
-
-```
-
-```{r save log2fold change dot plot}
-
-#Save as an svg file
-ggsave(filename="R output/Ballast_l2fplot.svg", plot=log2foldplot, width=12, height=20, device=svg)
-
-```
-
-#### Create dot plot of results - log2fold change, colored by second_level, faceted by second_level
-
-```{r deseq dot plot extra colors}
-
-#Create color scheme
-fold_change_col = colorRampPalette(brewer.pal(9,"Dark2"))(12)
-
-plot_col_extra <- c("black", "#440154FF", "#450659FF","#460B5EFF","#472D7AFF","#3B518BFF", "#3A548CFF", "#38598CFF", "#365C8DFF", "#34608DFF", "#33638DFF", "#31678EFF", "#306A8EFF","#2E6E8EFF", "#2D718EFF", "#2B748EFF","#2A778EFF", "#297B8EFF","#1F958BFF", "#1F988BFF", "#1E9C89FF", "#1F9F88FF","#1FA287FF", "#21A585FF", "#23A983FF","#25AC82FF", "#29AF7FFF", "#2DB27DFF","#32B67AFF", "#37B878FF", "#3CBC74FF","#57C766FF", "#5EC962FF","#A2DA37FF","#DAE319FF", "#E4E419FF",  "#ECE51BFF", "#F5E61FFF","darkorchid1", "darkorchid2", "darkorchid3","#A21C9AFF", "#A62098FF", "#AB2394FF", "#AE2892FF", "#B22B8FFF", "#B6308BFF", "#BA3388FF", "#BE3885FF", "#C13B82FF", "#C53F7EFF","#C8437BFF", "#CC4678FF", "#CE4B75FF", "#D14E72FF", "#D5536FFF", "#D7566CFF", "#DA5B69FF", "#DD5E66FF", "#E06363FF","#FF6699","#F68D45FF", "#FCA537FF","#F6E726FF", "#F4ED27FF", "#00489C", "#CCCCCC", "#999999", "#A1C299","#300018")
-```
-
-```{r log2fold change 2}
-
-#Plot
-log2foldplot <- ggplot(df_ballast_deseq_BWT_filt_descrip, 
-                       aes(x=log2FoldChange, y=description, color=second_level)) + geom_point(size=6) +
-  scale_color_manual(values = plot_col_extra) +
-  geom_vline(xintercept = 0, linetype="dashed", color = "black", size=1) +
-  theme_bw() +
-  theme(panel.grid.minor = element_blank()) +
-facet_wrap(~top_level, scales = "free") 
-
-
-print(log2foldplot)
-```
-
-#### Create dot plot of results - log2fold change, separate graphs for each top_level
-
-##### Subset data by top level
-
-```{r log2fold subset top level}
-
-df_ballast_deseq_BWT_filt_Biosynthesis <- df_ballast_deseq_BWT_filt_descrip %>%
-  subset(top_level == "Biosynthesis")
-
-df_ballast_deseq_BWT_filt_Degradation <- df_ballast_deseq_BWT_filt_descrip %>%
-  subset(top_level == "Degradation/Utilization/Assimilation")
-
-df_ballast_deseq_BWT_filt_Energy <- df_ballast_deseq_BWT_filt_descrip %>%
-  subset(top_level == "Generation of Precursor Metabolite and Energy")
-
-df_ballast_deseq_BWT_filt_Glycan <- df_ballast_deseq_BWT_filt_descrip %>%
-  subset(top_level == "Glycan Pathways")	
-
-df_ballast_deseq_BWT_filt_Macro <- df_ballast_deseq_BWT_filt_descrip %>%
-  subset(top_level == "Macromolecule Modification")
-
-df_ballast_deseq_BWT_filt_Super <- df_ballast_deseq_BWT_filt_descrip %>%
-  subset(top_level == "Superpathways")
-
-```
-
-##### Plot Biosynthesis pathways
-
-```{r plot biosynthesis log2fold}
-
-#Plot Biosynthesis log2fold changes
-log2foldplot_Biosynthesis <- ggplot(df_ballast_deseq_BWT_filt_Biosynthesis, 
-                       aes(x=log2FoldChange, y=description, color=second_level)) + geom_point(size=6) +
-  scale_color_manual(values = fold_change_col) +
-  geom_vline(xintercept = 0, linetype="dashed", color = "black", size=1) +
-  theme_bw() +
-  theme(panel.grid.minor = element_blank())  
-
-
-print(log2foldplot_Biosynthesis)
-```
-
-```{r biosynthesis log2fold svg}
-
-ggsave(filename="R output/Metacyc_pathways_log2fold_Biosynthesis.svg", 
-       plot=log2foldplot_Biosynthesis, width=20, height=10, device=svg)
-```
-
-##### Plot Degradation/Utilization/Assimilation pathways
-
-```{r plot degradation log2fold}
-
-#Plot Biosynthesis log2fold changes
-log2foldplot_Degradation <- ggplot(df_ballast_deseq_BWT_filt_Degradation, 
-                       aes(x=log2FoldChange, y=description, color=second_level)) + geom_point(size=6) +
-  scale_color_manual(values = fold_change_col) +
-  geom_vline(xintercept = 0, linetype="dashed", color = "black", size=1) +
-  theme_bw() +
-  theme(panel.grid.minor = element_blank())  
-
-
-print(log2foldplot_Degradation)
-```
-
-```{r degradation log2fold svg}
-
-ggsave(filename="R output/Metacyc_pathways_log2fold_Degradation.svg", 
-       plot=log2foldplot_Degradation, width=15, height=8, device=svg)
-```
-
-##### Plot Generation of Precursor Metabolite and Energy pathways
-
-```{r plot metabolite and energy log2fold}
-
-#Plot Biosynthesis log2fold changes
-log2foldplot_Energy <- ggplot(df_ballast_deseq_BWT_filt_Energy, 
-                       aes(x=log2FoldChange, y=description, color=second_level)) + geom_point(size=6) +
-  scale_color_manual(values = fold_change_col) +
-  geom_vline(xintercept = 0, linetype="dashed", color = "black", size=1) +
-  theme_bw() +
-  theme(panel.grid.minor = element_blank())  
-
-
-print(log2foldplot_Energy)
-```
-
-```{r energy log2fold svg}
-
-ggsave(filename="R output/Metacyc_pathways_log2fold_Energy.svg", 
-       plot=log2foldplot_Energy, width=10, height=5, device=svg)
-```
-
-##### Plot Glycan pathways
-
-```{r plot glycan log2fold}
-
-#Plot Biosynthesis log2fold changes
-log2foldplot_Glycan <- ggplot(df_ballast_deseq_BWT_filt_Glycan, 
-                       aes(x=log2FoldChange, y=description, color=second_level)) + geom_point(size=6) +
-  scale_color_manual(values = fold_change_col) +
-  geom_vline(xintercept = 0, linetype="dashed", color = "black", size=1) +
-  theme_bw() +
-  theme(panel.grid.minor = element_blank())  
-
-
-print(log2foldplot_Glycan)
-```
-
-```{r glycan log2fold svg}
-
-ggsave(filename="R output/Metacyc_pathways_log2fold_Glycan.svg", 
-       plot=log2foldplot_Glycan, width=10, height=5, device=svg)
-```
-
-##### Plot Macromolecule Modification pathways
-
-```{r plot macro log2fold}
-
-#Plot Macromolecule Medification log2fold changes
-log2foldplot_Macro <- ggplot(df_ballast_deseq_BWT_filt_Macro, 
-                       aes(x=log2FoldChange, y=description, color=second_level)) + geom_point(size=6) +
-  scale_color_manual(values = fold_change_col) +
-  geom_vline(xintercept = 0, linetype="dashed", color = "black", size=1) +
-  theme_bw() +
-  theme(panel.grid.minor = element_blank())  
-
-
-print(log2foldplot_Macro)
-```
-
-```{r macro log2fold svg}
-
-ggsave(filename="R output/Metacyc_pathways_log2fold_Macro.svg", 
-       plot=log2foldplot_Macro, width=10, height=5, device=svg)
-```
-
-##### Plot Superpathways
-
-```{r plot superpathways log2fold}
-
-#Plot Superpathway log2fold changes
-log2foldplot_Super <- ggplot(df_ballast_deseq_BWT_filt_Super, 
-                       aes(x=log2FoldChange, y=description, color=second_level)) + geom_point(size=6) +
-  scale_color_manual(values = fold_change_col) +
-  geom_vline(xintercept = 0, linetype="dashed", color = "black", size=1) +
-  theme_bw() +
-  theme(panel.grid.minor = element_blank())  
-
-
-print(log2foldplot_Super)
-```
-
-```{r super log2fold svg}
-
-ggsave(filename="R output/Metacyc_pathways_log2fold_Super.svg", 
-       plot=log2foldplot_Super, width=10, height=5, device=svg)
-```
-
-#### Bar plot of results - normalized counts
-
-```{r find normalized counts}
-
-#Find normalized counts
-port_BWT_deseq_norm_counts <- as.data.frame(counts(ballast_deseq, 
-                                                   normalize = TRUE))
-
-#Make the rownames a column
-sig_norm_counts <- tibble::rownames_to_column(port_BWT_deseq_norm_counts, var = "pathway")
-
-#Gathering the normalized counts into 2 columns
-sig_norm_counts_a <- gather(sig_norm_counts, key = "samplename",
-                                value = "normalized_counts", -pathway)
-
-#Create a column with the filtered deseq dataframe rownames as well
-pathway_all <- data.frame(df_ballast_deseq_BWT_filt)
-
-#Add normalized counts to the deseq dataframe
-sig_norm_counts_filt <- pathway_all %>%
-  left_join(sig_norm_counts_a, by = "pathway") %>%
-  filter(pathway == pathway) 
-
-#Create dataframe out of the phyloseq metadata so that we can ID these samples
-meta <- data.frame(sample_data(Ballast_physeq)) %>%
-  tibble::rownames_to_column(var = "samplename")
-
-#Merge metadata with sig_norm_counts_filt
-sig_norm_counts_filt <- sig_norm_counts_filt %>%
-  left_join(meta, by = "samplename")
-
-#Filter: Remove deseq results columns that aren't relevant for the following graph,
-#and filter the Sample_type column so that the dataset includes only the 
-#samples contrasted in deseq
-sig_norm_counts_filt <- sig_norm_counts_filt %>% 
-  dplyr::select(-baseMean, -lfcSE, -stat, -pvalue, -padj) %>%
-  filter(Sample_type %in% c("Port uptake", "BWT"))
-
-#Add 1 to account for 0's and then log transform the count data
-sig_norm_counts_filt$log_normalized_counts <- log(sig_norm_counts_filt$normalized_counts+1)
- 
-#Add pathway descriptions
-sig_norm_counts_filt <- sig_norm_counts_filt %>%
-  left_join(ballast_metacyc_all_levels, by = "pathway")
-
-#Remove pathways that have a negative log2FoldChange
-sig_norm_counts_filt_pos <- filter(sig_norm_counts_filt, log2FoldChange > 0)
-
-
-```
-
-Examine pathways that increased in abundance in BWT samples:
-
-```{r normalized counts bar}
-
-#Barplot version
-BWT_positive_barplot <- ggplot(sig_norm_counts_filt_pos, aes(x = description, y = normalized_counts, fill = Sample_type)) +
-   stat_summary(geom = "bar", fun = mean, position = "dodge", colour = "black") +
-   stat_summary(geom = "errorbar", fun.data = mean_se, position = "dodge") +
-   xlab("description") +
-   ylab("Normalized counts") +
-   theme_bw() +
-   theme(axis.text.x = element_text(angle = 45, hjust = 1),
-         panel.grid.major = element_blank(),
-         panel.grid.minor = element_blank()) 
-   
- #facet_grid(. ~ Class, scales = "free") 
- 
- print(BWT_positive_barplot)
-```
-
-#### Dot plot of results - average normalized counts
-
-##### Grouped by port uptake and BWT
-
-```{r counts dot plot}
-
-#Calculate average
-sig_norm_counts_filt_pos_avg <- sig_norm_counts_filt_pos %>% 
-  group_by(pathway, Sample_type, description, second_level, top_level) %>%
-    dplyr::summarize(Mean = mean(normalized_counts, na.rm=TRUE)) 
-    
-#Make discrete categories to match with the color palette
-sig_norm_counts_filt_pos_avg$Mean_factor <- cut(sig_norm_counts_filt_pos_avg$Mean, breaks = c(20, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000), labels = c("0-1000", "1000-2000", "2000-3000", "3000-4000", "4000-5000", "5000-6000", "6000-7000", "7000-8000", "8000-9000", "9000-10000"))
-
-#Order the new variable
-sig_norm_counts_filt_pos_avg$Mean_factor <- 
-  factor(sig_norm_counts_filt_pos_avg$Mean_factor, 
-               levels = c("9000-10000", "8000-9000", "7000-8000", "6000-7000",
-                          "5000-6000", "4000-5000", "3000-4000", "2000-3000", 
-                          "1000-2000", "0-1000"))
-
-#Plot
-pathway_avg_count_plot <- ggplot(sig_norm_counts_filt_pos_avg, 
-                       aes(x=Sample_type, y=description, color=Mean_factor)) + 
-  geom_point(size=6) +
-  scale_color_brewer(palette = "RdYlBu") + #color-blind friendly palette
-  theme_bw() +
-  theme(panel.grid.minor = element_blank()) 
-
-print(pathway_avg_count_plot)
-```
-
-##### Grouped by sample type and voyage
-
-```{r counts dot plot voyage}
-
-#Calculate average
-sig_norm_counts_filt_pos_avg_voyage <- sig_norm_counts_filt_pos %>% 
-  group_by(pathway, Sample_type, Voyage, description, second_level, top_level) %>%
-    dplyr::summarize(Mean = mean(normalized_counts, na.rm=TRUE)) %>%
-    arrange(second_level)
-    
-#Make discrete categories to match with the color palette
-sig_norm_counts_filt_pos_avg_voyage$Mean_factor <- cut(sig_norm_counts_filt_pos_avg_voyage$Mean, breaks = c(-1, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000), labels = c("0-1000", "1000-2000", "2000-3000", "3000-4000", "4000-5000", "5000-6000", "6000-7000", "7000-8000", "8000-9000", "9000-10000"))
-
-#Order the new variable
-sig_norm_counts_filt_pos_avg_voyage$Mean_factor <- 
-  factor(sig_norm_counts_filt_pos_avg_voyage$Mean_factor, 
-               levels = c("9000-10000", "8000-9000", "7000-8000", "6000-7000",
-                          "5000-6000", "4000-5000", "3000-4000", "2000-3000", 
-                          "1000-2000", "0-1000"))
-
-#Order factors
-sig_norm_counts_filt_pos_avg_voyage$second_level <- 
-  factor(sig_norm_counts_filt_pos_avg_voyage$second_level, 
-                      levels = c("Amine and Polyamine Biosynthesis", 
-                                 "Amine and Polyamine Degradation", 
-                                 "Amino Acid Biosynthesis", 
-                                 "Amino Acid Degradation", 
-                                 "Aromatic Compound Biosynthesis", 
-                                 "Aromatic Compound Degradation", 
-                                 "Carbohydrate Biosynthesis", 
-                                 "Carbohydrate Degradation", "Cofactor, Prosthetic Group, Electron Carrier, and Vitamin Biosynthesis", "Degradation/Utilization/Assimilation - Other", "Fatty Acid and Lipid Biosynthesis", "Fatty Acid and Lipid Degradation", "Fermentation", "Inorganic Nutrient Metabolism", "Metabolic Regulator Biosynthesis", "Nucleoside and Nucleotide Degradation", "Secondary Metabolite Biosynthesis", "Secondary Metabolite Degradation", "TCA cycle", "glyoxylate cycle")) 
-
-#Plot
-pathway_avg_count_voyage_plot <- ggplot(sig_norm_counts_filt_pos_avg_voyage, 
-                       aes(x=Sample_type, y = description,
-                           color=Mean_factor)) + 
-  geom_point(size=4) +
-  scale_color_brewer(palette = "RdYlBu") + #color-blind friendly palette
-  facet_nested(second_level ~ Voyage, scales = "free_y", space = "free") +
-  labs(x = "Sample type", y = "Pathway", color = "Normalized abundance") +
-  theme_minimal()+theme(
-    strip.text = element_text(size=12),
-    panel.border = element_rect(fill=NA, colour = "black"), 
-    panel.grid.minor = element_blank(),
-    panel.grid.major = element_blank(), 
-    axis.title.x = element_text(size=12),
-    axis.title.y = element_text(size=12),
-    axis.text.x  = element_text(angle = 90, vjust = 0.5, hjust=1, size=10, 
-                              colour="black"), 
-    axis.text.y = element_text(size=10, colour="black"), 
-    plot.title = element_text(hjust = 0.5), 
-    axis.ticks.x = element_line(colour="#000000", size=0.1), 
-    axis.ticks.y = element_line(colour="#000000", size=0.1),
-    legend.text = element_text(size = 10), 
-    strip.text.y = element_text(angle = 0))
-
-
-```
-
-##### Grouped by sample type and voyage - \>1 log2foldchange only
-
-```{r counts dot plot voyage greater than 1}
-
-#Remove pathways that have a log2FoldChange <1
-sig_norm_counts_filt_1 <- filter(sig_norm_counts_filt, log2FoldChange >= 1)
-
-#Calculate average
-sig_norm_counts_filt_1_avg <- sig_norm_counts_filt_1 %>% 
-  group_by(pathway, Sample_type, Voyage, description, second_level, top_level) %>%
-    dplyr::summarize(Mean = mean(normalized_counts, na.rm=TRUE)) %>%
-  arrange(second_level)
-
-#Make discrete categories to match with the color palette
-sig_norm_counts_filt_1_avg$Mean_factor <- cut(sig_norm_counts_filt_1_avg$Mean, breaks = c(-1, 1000, 2000, 3000, 4000, 5000, 6000), labels = c("0-1000", "1000-2000", "2000-3000", "3000-4000", "4000-5000", "5000-6000"))
-
-#Order the new variable
-sig_norm_counts_filt_1_avg$Mean_factor <- 
-  factor(sig_norm_counts_filt_1_avg$Mean_factor, 
-               levels = c("5000-6000", "4000-5000", "3000-4000", "2000-3000", 
-                          "1000-2000", "0-1000"))
-
-#Order factors
-sig_norm_counts_filt_1_avg$second_level <- 
-  factor(sig_norm_counts_filt_1_avg$second_level, 
-                      levels = c("Amine and Polyamine Degradation",  
-                                 "Amino Acid Degradation",  
-                                 "Aromatic Compound Degradation", 
-                                 "Carbohydrate Degradation", 
-                                 "Cofactor, Prosthetic Group, Electron Carrier, and Vitamin Biosynthesis", "Degradation/Utilization/Assimilation - Other", "Fermentation", "Inorganic Nutrient Metabolism", "Secondary Metabolite Degradation", "TCA cycle")) 
-
-#Plot
-pathway_avg_1_voyage_plot <- ggplot(sig_norm_counts_filt_1_avg, 
-                       aes(x=Sample_type, y = description,
-                           color=Mean_factor)) + 
-  geom_point(aes(size=Mean)) +
-  scale_color_brewer(palette = "RdYlBu") + #color-blind friendly palette
-  facet_nested(second_level ~ Voyage, scales = "free_y", space = "free") +
-  labs(x = "Sample type", y = "Pathway", color = "Normalized abundance") +
-  theme_minimal()+theme(
-    strip.text = element_text(size=12),
-    panel.border = element_rect(fill=NA, colour = "black"), 
-    panel.grid.minor = element_blank(),
-    panel.grid.major = element_blank(), 
-    axis.title.x = element_text(size=12),
-    axis.title.y = element_text(size=12),
-    axis.text.x  = element_text(angle = 90, vjust = 0.5, hjust=1, size=10, 
-                              colour="black"), 
-    axis.text.y = element_text(size=10, colour="black"), 
-    plot.title = element_text(hjust=0.5), 
-    axis.ticks.x = element_line(colour="#000000", size=0.1), 
-    axis.ticks.y = element_line(colour="#000000", size=0.1),
-    legend.text = element_text(size=10), 
-    strip.text.y = element_text(angle=0, size=10))
-
-```
-
-### Based on second level of functional annotation
-
-Need to group by second level annotation
-
-```{r metacyc deseq object second level}
-
-
-#Group by second_level
-ballast_deseq_BWT_second <- df_ballast_deseq_BWT_filt_descrip %>% 
-  group_by(top_level, second_level) %>%
-  dplyr::summarize(log2FoldChange = mean(log2FoldChange, na.rm=TRUE)) %>%
-  arrange(top_level)
-
-
-
-#Plot
-log2foldplot <- ggplot(ballast_deseq_BWT_second, 
-                       aes(x=log2FoldChange, y=second_level, color=top_level)) + geom_point(size=6) +
-  scale_color_manual(values = fold_change_col) +
-  geom_vline(xintercept = 0, linetype="dashed", color = "black", size=1) +
-  theme_bw() +
-  theme(panel.grid.minor = element_blank()) 
-
-print(log2foldplot)
-```
-
-## BWT vs BWT+BWE
-
-```{r DeSeq2 MetaCyc BWT vs BWT BWE}
-
-# #Run DESeq
-# ballast_deseq <- DESeq(ballast_deseq, test="Wald")
-# 
-# #Show results
-# res_ballast_deseq <- results(ballast_deseq)
-# res_ballast_deseq
-# 
-# #Check which comparisons are contained in the deseq object:
-# resultsNames(ballast_deseq)
-# 
-# #Just want to compare Port_uptake with BWT; creating a results table with only this information
-# res_ballast_deseq_BWT <- results(ballast_deseq, contrast=c("Sample_type","BWT","Port_uptake"), alpha=0.05)
-# 
-# #Show results summary
-# summary(res_ballast_deseq_BWT)
-# 
-# #Log fold change shrinkage on the effluent_TWW_vs_CON comparison
-# resLFC <- lfcShrink(ballast_deseq, coef="Sample_type_BWT_vs_Port_uptake", type="apeglm")
-# resLFC
-# 
-# #"It is more useful visualize the MA-plot for the shrunken log2 fold changes, 
-# #which remove the noise associated with log2 fold changes from low count genes 
-# #without requiring arbitrary filtering thresholds."
-# #https://www.bioconductor.org/packages/devel/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#why-un-normalized-counts
-# plotMA(resLFC)
-# 
-# #Convert results to dataframe
-# df_ballast_deseq_BWT <- as.data.frame(res_ballast_deseq_BWT)
-# 
-# #Filter based on adj p-value, removing non-significant values (p>0.05). This also removes p-values that are NA; NA p-values exist because when p-values do not pass the filter threshold (p-values less than 0.1) they are set to NA. More information in vignette("DESeq2") under "Note on p-values set to NA"
-# df_ballast_deseq_BWT_filt <- filter(df_ballast_deseq_BWT, padj <= 0.05)
-# 
-# #Order by adjusted p-value
-# df_ballast_deseq_BWT_filt = df_ballast_deseq_BWT_filt[order(df_ballast_deseq_BWT_filt$padj, na.last=NA), ]
-# 
-# #Add pathway descriptions to the DESeq results using the left_join function in dplyr; rownames in the DESeq output need to be a column labeled pathway in order to match that of the descriptions dataframe
-# df_ballast_deseq_BWT_filt <- rownames_to_column(df_ballast_deseq_BWT_filt, var = "pathway")
-# 
-# df_ballast_deseq_BWT_filt_descrip <- df_ballast_deseq_BWT_filt %>%
-#   left_join(ballast_metacyc_all_levels, by = "pathway")
-```
-
-# DESeq2 analysis on KEGG data (TEST)
-
-## Load ggpicrust2 and dependent packages
-
-```{r picrust packages, warning=FALSE, error=FALSE, message=FALSE}
-
-library("ggpicrust2")
-library("phyloseq")
-library("ALDEx2")
-library("SummarizedExperiment")
-library("Biobase")
-library("devtools")
-library("ComplexHeatmap")
-library("BiocGenerics")
-library("BiocManager")
-library("metagenomeSeq")
-library("Maaslin2")
-library("edgeR")
-library("lefser")
-library("limma")
-library("KEGGREST")
-library("DESeq2")
-library("aplot")
-library("dplyr")
-library("ggplot2")
-library("grid")
-library("MicrobiomeStat")
-library("readr")
-library("stats")
-library("tibble")
-library("tidyr")
-library("ggprism")
-library("cowplot")
-library("ggforce")
-library("ggplotify")
-library("magrittr")
-library("utils")
-
-
-```
-
-## Convert KO abundance to KEGG pathway abundance
-
-```{r ko to kegg conversion}
-
-# #Load packages
-# library(ggpicrust2) 
-# library(readr) 
-# 
-# #Run ko2kegg_abundance function on input file  
-# kegg_abundance <- ko2kegg_abundance("PICRUSt2-analysis/KO_version/pred_metagenome_unstrat.tsv") 
-# 
-# #Read in metadata  
-# metadata <- read_delim("PICRUSt2-analysis/KO_version/Metadata.tsv", delim = "\t")  
-# 
-# #Run differential abundance analysis in ggpicrust2  
-# daa_results_df <- pathway_daa(abundance = kegg_abundance, metadata = metadata,                                group = "Sample_type", daa_method = "DESeq2") 
-# 
-# #Filter results to include port uptake vs BWT only  
-# daa_results_df_BWT <- daa_results_df %>%   
-#   filter(group1 == "port_uptake") 
-# 
-# daa_results_df_BWT <- daa_results_df_BWT %>%     
-#   filter(group2 == "BWT") 
-# 
-# #Filter based on adj p-value, removing non-significant values (p>0.05). This also removes p-values that are NA; NA p-values exist because when p-values do not pass the filter threshold (p-values less than 0.1) they are set to NA. More information in vignette("DESeq2") under "Note on p-values set to NA"  
-# daa_results_df_BWT_filt_final <- filter(daa_results_df_BWT, p_adjust <= 0.05)  
-# 
-# #Break the results into chunks that can be easily processed by the pathway_annotation function; only a few querys can be run at a time 
-# daa_results_df_BWT_filt_final_A <- daa_results_df_BWT_filt_final %>%                                            slice_head(n=50) 
-# 
-# #Annotate as kegg pathways # 
-# daa_annotated_results_df_BWT <- pathway_annotation(pathway = "KO",
-#                                 daa_results_df = daa_results_df_BWT_filt_final_A,
-#                                 ko_to_kegg = FALSE,
-#                                 file = NULL) 
-# 
-# #Can delete this later - quick look at what these KOs are 
-# #Read in the function descriptions  
-# ballast_KO_descrip <- read_delim("PICRUSt2-analysis/KO_version/pred_metagenome_unstrat_descrip.tsv", delim = "\t") 
-# 
-# result1 <- pathway_annotation(file = "PICRUSt2-analysis/KO_version/pred_metagenome_unstrat_descrip.tsv", pathway = "KO", daa_results_df = NULL,  ko_to_kegg = FALSE)
-```
-
-# MBPD
-
-## Import pathogen data
-
-```{r pathogen, warning = FALSE, messages = FALSE, error = FALSE}
-
-#Create a phyloseq object from the .qza files exported from qiime2 using 
-#the qiime2R package
-Ballast_pathogen_physeq <- qza_to_phyloseq(
-  features="Qiime output/MBPD/ballast-dada2-table.qza",
-  tree="Qiime output/MBPD/ballast-rooted-tree.qza",
-  taxonomy="Qiime output/MBPD/ballast-pathogen-taxonomy.qza",
-  metadata = "Qiime output/Metadata.tsv")
-```
-
-## Filter samples
-
-Based on the table above, there are some samples with very few to no reads, so we'll filter these out here. In this case, we keep all samples with more than 1,000 reads.
-
-Removing these samples with low sequencing depths is important because samples with low reads typically are lower quality and have a greater probability of containing contaminant sequences ([Weiss et al., 2017](https://microbiomejournal.biomedcentral.com/articles/10.1186/s40168-017-0237-y)).
-
-```{r filter pathogen}
-
-#Remove samples with few reads
-Ballast_pathogen_physeq = subset_samples(Ballast_pathogen_physeq, 
-                                         Sample_number != "104")
-Ballast_pathogen_physeq = subset_samples(Ballast_pathogen_physeq, 
-                            Sample_number != "105")
-Ballast_pathogen_physeq = subset_samples(Ballast_pathogen_physeq, 
-                            Sample_number != "107")
-Ballast_pathogen_physeq = subset_samples(Ballast_pathogen_physeq, 
-                            Sample_number != "108")
-Ballast_pathogen_physeq = subset_samples(Ballast_pathogen_physeq, 
-                            Sample_number != "109")
-Ballast_pathogen_physeq = subset_samples(Ballast_pathogen_physeq, 
-                            Sample_number != "106")
-
-#Filter out low abundance ASVs
-Ballast_pathogen_physeq = prune_taxa(taxa_sums(Ballast_pathogen_physeq) > 2, Ballast_pathogen_physeq)
-```
-
-## Label and order variables
-
-Now we can relabel the variables; if you type in Ballast_physeq you will see that sample_data is the matrix that holds the information that we want to change, so we need to include sample_data in our code here.
-
-```{r label and order pathogen}
-
-#Order factors
-sample_data(Ballast_pathogen_physeq)$Sample_type <- factor(sample_data(Ballast_pathogen_physeq)$Sample_type, 
-               levels = c("port_uptake", "BWT", "ocean_uptake", "BWT_BWE"),
-               labels = c("Port uptake", "BWT", "Ocean uptake", "BWT+BWE"))
-
-sample_data(Ballast_pathogen_physeq)$Sample_number <- factor(sample_data(Ballast_pathogen_physeq)$Sample_number, 
-               levels = c("80", "81", "82", "83", "84", "85", "86", "87", "88", "89", "90", "91", "92", "93", "94", "95", "96", "97", "98", "100", "101", "102", "103", "110", "111", "112", "113", "114", "115"),
-               labels = c("80", "81", "82", "83", "84", "85", "86", "87", "88", "89", "90", "91", "92", "93", "94", "95", "96", "97", "98", "100", "101", "102", "103", "110", "111", "112", "113", "114", "115"))
-
-sample_data(Ballast_pathogen_physeq)$Voyage <- factor(sample_data(Ballast_pathogen_physeq)$Voyage, 
-               levels = c("1", "2"),
-               labels = c("Voyage 1", "Voyage 2"))
-```
-
-## Bacterial community composition bar charts
-
-### Species level, grouped by voyage and sample type
-
-```{r pathogen species}
-
-#Examining BCC by sample type & voyage
-BallastSeqR_pathogen_species_voyage <- Ballast_pathogen_physeq %>%
-  tax_glom(taxrank = "Species") %>%                   #Agglomerate at species level
-  transform_sample_counts(function(x) {x/sum(x)}) %>% #Transform to rel. abundance
-  psmelt() %>%                                        #Melt to long format
-  group_by(Sample_type, Voyage, 
-           Kingdom, Phylum, Class, Order, Family, Genus, Species) %>%
-  dplyr::summarize(Mean = 
-                     mean(Abundance, na.rm=TRUE)) %>% #Calculate average
-  arrange(Class)
-```
-
-#### Plot with ggnested
-
-```{r pathogen species plotted}
-
-require("ggnested")
-
-#Convert to a dataframe
-BallastSeqR_pathogen_species_voyage_filt <- data.frame(BallastSeqR_pathogen_species_voyage) 
-
-#Custom color palette
-pal <- c("#440154FF", "blue", "green", "yellow", "purple", "orange", "#FF6699", "black", "red", "yellow")
-names(pal) <- unique(BallastSeqR_pathogen_species_voyage_filt$Class)
-
-#Use ggnested to create the bar plot
-BallastSeqR_pathogen_voyage_species_bar_ggnested <- ggnested::ggnested(BallastSeqR_pathogen_species_voyage_filt, 
-         aes(x = Sample_type, 
-             y = Mean, 
-             main_group = Class, 
-             sub_group = Species),
-          main_palette = pal) + 
-  geom_bar(stat="identity", colour = "black", size=0.3, position = "fill") +
-  facet_wrap(~ Voyage, scale="free") +
-  guides(fill = guide_legend(reverse = FALSE, keywidth = 1, keyheight = 1)) +
-  ylab("Relative Abundance (Species > 1%) \n") + xlab("Sample Type") +
-  theme_minimal()+theme(
-    strip.text = element_text(size=12),
-    panel.border = element_rect(fill=NA, colour = "black"), 
-    panel.grid.minor = element_blank(),
-    panel.grid.major = element_blank(), 
-    axis.title.x = element_text(size=12),
-    axis.title.y = element_text(size=12),
-    axis.text.x  = element_text(angle = 90, vjust = 0.5, hjust=1, size=10, 
-                              colour="black"), 
-    axis.text.y = element_text(size=10, colour="black"), 
-    plot.title = element_text(hjust = 0.5), 
-    axis.ticks.x = element_line(colour="#000000", size=0.1), 
-    axis.ticks.y = element_line(colour="#000000", size=0.1),
-    legend.text = element_text(size = 10)) +
-  facet_wrap(~ Voyage, scale="free")
-
-print(BallastSeqR_pathogen_voyage_species_bar_ggnested)
-```
-
 # Filter ASVs to determine how many were given species-level assignments
+
+Recreate a fresh phyloseq object from the original .qza files so that the taxonomy is examined here without the relabeling (e.g. `tax_fix`) applied to `Ballast_physeq` earlier in the analysis.
 
 ```{r create new phyloseq object}
 
-#Create a phyloseq object from the .qza files exported from qiime2 using 
+#Create a phyloseq object from the .qza files exported from qiime2 using
 #the qiime2R package
 Ballast_physeq2 <- qza_to_phyloseq(
   features="Qiime output/ballast-dada2-table.qza",
@@ -2755,56 +1817,36 @@ Ballast_physeq2 <- qza_to_phyloseq(
   metadata = "Qiime output/Metadata.tsv"
 )
 
-#Check the rank names to make sure they are accurate
-rank_names(Ballast_physeq2)
-
-#Correct output:[1] "Kingdom" "Phylum"  "Class"   "Order"   "Family"  
-#                   "Genus"   "Species"
-
-#Check sample variables
-sample_variables(Ballast_physeq2)
-
-#Remove chloroplast sequences and any contaminant sequences
+#Remove chloroplast, mitochondrial and archaeal sequences
 Ballast_physeq2 <- subset_taxa(Ballast_physeq2, Kingdom != "d__Archaea")
 Ballast_physeq2 <- subset_taxa(Ballast_physeq2, Order != "Chloroplast")
 Ballast_physeq2 <- subset_taxa(Ballast_physeq2, Family != "Mitochondria")
 
-#Check that contaminant sequences are removed (easiest to save as data frame and search)
-taxtabl <- as.data.frame(tax_table(Ballast_physeq2))
-
-#At this point, blanks and positive controls should also be removed
+#Remove blanks and positive controls
 Ballast_physeq2 = subset_samples(Ballast_physeq2, Sample_type != "control")
 Ballast_physeq2 = subset_samples(Ballast_physeq2, Sample_type != "negative")
 
 #Remove samples with few reads
-Ballast_physeq2 = subset_samples(Ballast_physeq2, 
-                            Sample_number != "104")
-Ballast_physeq2 = subset_samples(Ballast_physeq2, 
-                            Sample_number != "105")
-Ballast_physeq2 = subset_samples(Ballast_physeq2, 
-                            Sample_number != "107")
-Ballast_physeq2 = subset_samples(Ballast_physeq2, 
-                            Sample_number != "108")
-Ballast_physeq2 = subset_samples(Ballast_physeq2, 
-                            Sample_number != "109")
-Ballast_physeq2 = subset_samples(Ballast_physeq2, 
-                            Sample_number != "106")
+Ballast_physeq2 <- subset_samples(Ballast_physeq2,
+                                  !(Sample_number %in% samples_to_exclude))
 
 #Filter out low abundance ASVs
 Ballast_physeq2 = prune_taxa(taxa_sums(Ballast_physeq2) > 2, Ballast_physeq2)
 
 #Order factors
-sample_data(Ballast_physeq2)$Sample_type <- factor(sample_data(Ballast_physeq2)$Sample_type, 
-               levels = c("port_uptake", "BWT", "ocean_uptake", "BWT_BWE"),
-               labels = c("Port uptake", "BWT", "Ocean uptake", "BWT+BWE"))
+sample_data(Ballast_physeq2)$Sample_type <- factor(
+  sample_data(Ballast_physeq2)$Sample_type,
+  levels = sample_type_levels,
+  labels = sample_type_labels)
 
-sample_data(Ballast_physeq2)$Sample_number <- factor(sample_data(Ballast_physeq2)$Sample_number, 
-               levels = c("80", "81", "82", "83", "84", "85", "86", "87", "88", "89", "90", "91", "92", "93", "94", "95", "96", "97", "98", "100", "101", "102", "103", "110", "111", "112", "113", "114", "115"),
-               labels = c("80", "81", "82", "83", "84", "85", "86", "87", "88", "89", "90", "91", "92", "93", "94", "95", "96", "97", "98", "100", "101", "102", "103", "110", "111", "112", "113", "114", "115"))
+sample_data(Ballast_physeq2)$Sample_number <- factor(
+  sample_data(Ballast_physeq2)$Sample_number,
+  levels = sample_numbers)
 
-sample_data(Ballast_physeq2)$Voyage <- factor(sample_data(Ballast_physeq2)$Voyage, 
-               levels = c("1", "2"),
-               labels = c("Voyage 1", "Voyage 2"))
+sample_data(Ballast_physeq2)$Voyage <- factor(
+  sample_data(Ballast_physeq2)$Voyage,
+  levels = c("1", "2"),
+  labels = c("Voyage 1", "Voyage 2"))
 ```
 
 ```{r ASVs assigned to species}
